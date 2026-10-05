@@ -18,7 +18,7 @@ from app.models import (
     Variant,
     WebhookEvent,
 )
-from app.models.enums import CheckoutStatus, EventSource, WebhookStatus
+from app.models.enums import CheckoutStatus, EventSource, TicketChannel, WebhookStatus
 from app.pipeline.ingest import ingest_event
 from app.services import events
 from tests.conftest import InlineQueue
@@ -291,7 +291,9 @@ async def test_refund_fulfillment_review_and_support(
     assert review is not None
     assert review.rating == 1
 
-    ticket = await db.scalar(select(Ticket).where(Ticket.shop_id == shop.id))
+    ticket = await db.scalar(
+        select(Ticket).where(Ticket.shop_id == shop.id, Ticket.channel == TicketChannel.EMAIL)
+    )
     assert ticket is not None
     assert ticket.order_id == order.id
     message = await db.scalar(select(Message).where(Message.ticket_id == ticket.id))

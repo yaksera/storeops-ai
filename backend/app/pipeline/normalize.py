@@ -260,6 +260,8 @@ async def handle_fulfillment(db: AsyncSession, shop: Shop, p: Payload) -> Normal
     if order is None:
         return NormalizeResult(stale=True)
     order.fulfillment_status = "fulfilled" if p.get("status", "success") == "success" else "partial"
+    order.tracking_number = p.get("tracking_number") or order.tracking_number
+    order.tracking_url = p.get("tracking_url") or order.tracking_url
     await db.flush()
     customer = await db.get(Customer, order.customer_id) if order.customer_id else None
     data = order_summary(order, customer, 0) | {"tracking_number": p.get("tracking_number")}

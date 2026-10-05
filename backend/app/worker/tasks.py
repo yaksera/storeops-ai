@@ -13,9 +13,9 @@ from app.core.db import get_sessionmaker
 from app.core.queue import get_queue
 from app.core.redis import get_redis
 from app.demo import simulator
-from app.models import ActionProposal, Approval, Shop
+from app.models import ActionProposal, Approval, Notification, Shop
 from app.models.base import utcnow
-from app.models.enums import ActorType, EventSource, ShopMode, ShopStatus
+from app.models.enums import ActorType, EventSource, Severity, ShopMode, ShopStatus
 from app.pipeline.processor import process_event
 from app.shopify import sync
 
@@ -116,6 +116,32 @@ async def reconcile_shops(ctx: dict[str, Any]) -> int:
         return done
 
 
+async def weekly_review_summaries(ctx: dict[str, Any]) -> int:
+    from app.agents.reviews import weekly_summary
+
+    now = utcnow()
+    async with get_sessionmaker()() as db:
+        shops = (await db.scalars(select(Shop).where(Shop.status == ShopStatus.ACTIVE))).all()
+        for shop in shops:
+            summary = await weekly_summary(db, shop, now)
+            if not summary["reviews"]:
+                continue
+            top = ", ".join(f"{c['theme']} ({c['count']})" for c in summary["top_complaints"])
+            db.add(
+                Notification(
+                    shop_id=shop.id,
+                    kind="insight.weekly_reviews",
+                    severity=Severity.INFO,
+                    title=f"Weekly reviews: {summary['reviews']} new, "
+                    f"average {summary['average_rating']}★",
+                    body=f"Top complaints: {top}." if top else "No recurring complaints this week.",
+                    data=summary,
+                )
+            )
+        await db.commit()
+        return len(shops)
+
+
 async def simulator_tick(ctx: dict[str, Any]) -> int:
     if not get_settings().demo_mode_enabled:
         return 0
@@ -145,4 +171,5 @@ CRON_JOBS: list[Any] = [
     cron(scan_abandoned_checkouts, second={5, 35}, unique=True, timeout=55),
     cron(expire_proposals, second={50}, unique=True, timeout=55),
     cron(reconcile_shops, hour={9}, minute={15}, unique=True, timeout=3600),
+    cron(weekly_review_summaries, weekday={0}, hour={13}, minute={0}, unique=True, timeout=600),
 ]

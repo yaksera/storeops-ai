@@ -14,11 +14,13 @@ from app.api.routes import (
     audit_log,
     auth,
     health,
+    insights,
     live,
     operations,
     proposals,
     shopify,
     shops,
+    support,
 )
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
@@ -99,6 +101,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_log.router)
     app.include_router(operations.router)
     app.include_router(shopify.router)
+    app.include_router(support.router)
+    app.include_router(insights.router)
     return app
 
 

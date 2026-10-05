@@ -164,12 +164,14 @@ async def test_scenarios_via_api(
             select(Review).where(Review.shop_id == shop_id, Review.rating == 1)
         )
         assert review is not None
-        assert (
-            await db.scalar(
-                select(func.count()).select_from(Ticket).where(Ticket.shop_id == shop_id)
-            )
-            == 1
-        )
+        assert review.sentiment_label == "negative"
+        tickets = (await db.scalars(select(Ticket).where(Ticket.shop_id == shop_id))).all()
+        # One from the review itself, one from the follow-up email; both are escalated or open.
+        assert sorted(t.channel.value for t in tickets) == ["email", "review"]
+        email = next(t for t in tickets if t.channel.value == "email")
+        assert email.status.value == "escalated"
+        assert email.escalation_reason is not None
+        assert "legal or chargeback language" in email.escalation_reason
     elif scenario == "shipping_delay":
         tickets = (await db.scalars(select(Ticket).where(Ticket.shop_id == shop_id))).all()
         assert len(tickets) == 4

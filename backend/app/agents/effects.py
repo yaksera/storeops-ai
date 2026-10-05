@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret
-from app.models import Order, Shop
+from app.models import Order, Review, Shop, Variant
 from app.models.base import utcnow
 from app.models.enums import ShopMode
 from app.shopify.client import ShopifyClient, http_client, user_errors
@@ -30,6 +30,12 @@ class Effects(Protocol):
     async def send_email(self, *, to: str, subject: str, text: str, category: str) -> str: ...
 
     async def create_discount(self, *, pct: int, expires_at: datetime) -> str: ...
+
+    async def reply_to_review(self, review: Review, reply: str) -> None: ...
+
+    async def set_variant_price(
+        self, product_shopify_id: int, variant: Variant, price_minor: int
+    ) -> None: ...
 
 
 def outbox_key(shop_id: uuid.UUID) -> str:
@@ -63,6 +69,14 @@ class DemoEffects:
         )
         return code
 
+    async def reply_to_review(self, review: Review, reply: str) -> None:
+        await self._record({"kind": "review_reply", "review": str(review.id), "reply": reply})
+
+    async def set_variant_price(
+        self, product_shopify_id: int, variant: Variant, price_minor: int
+    ) -> None:
+        await self._record({"kind": "price_change", "sku": variant.sku, "price_minor": price_minor})
+
 
 class UnconfiguredEffects:
     """Live stores until the Shopify and email integrations are connected."""
@@ -74,6 +88,14 @@ class UnconfiguredEffects:
         raise EffectsUnavailableError("Email provider is not configured")
 
     async def create_discount(self, *, pct: int, expires_at: datetime) -> str:
+        raise EffectsUnavailableError("Shopify connection is not configured")
+
+    async def reply_to_review(self, review: Review, reply: str) -> None:
+        raise EffectsUnavailableError("No review platform is connected")
+
+    async def set_variant_price(
+        self, product_shopify_id: int, variant: Variant, price_minor: int
+    ) -> None:
         raise EffectsUnavailableError("Shopify connection is not configured")
 
 
@@ -90,6 +112,13 @@ mutation Hold($id: ID!, $hold: FulfillmentOrderHoldInput!) {
 TAG_MUTATION = """
 mutation Tag($id: ID!, $tags: [String!]!) {
   tagsAdd(id: $id, tags: $tags) { userErrors { field message } }
+}
+"""
+PRICE_MUTATION = """
+mutation Price($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+    userErrors { field message }
+  }
 }
 """
 DISCOUNT_MUTATION = """
@@ -177,6 +206,27 @@ class LiveEffects:
             )
             user_errors(result, "discountCodeBasicCreate")
         return code
+
+    async def reply_to_review(self, review: Review, reply: str) -> None:
+        raise EffectsUnavailableError("No review platform is connected")
+
+    async def set_variant_price(
+        self, product_shopify_id: int, variant: Variant, price_minor: int
+    ) -> None:
+        async with self._client() as client:
+            result = await client.query(
+                PRICE_MUTATION,
+                {
+                    "productId": f"gid://shopify/Product/{product_shopify_id}",
+                    "variants": [
+                        {
+                            "id": f"gid://shopify/ProductVariant/{variant.shopify_id}",
+                            "price": f"{price_minor / 100:.2f}",
+                        }
+                    ],
+                },
+            )
+            user_errors(result, "productVariantsBulkUpdate")
 
 
 def effects_for(shop: Shop, redis: Redis) -> Effects:

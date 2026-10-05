@@ -33,6 +33,7 @@ DEFAULT_AGENT_SETTINGS: dict[AgentName, dict[str, object]] = {
         "discount_pct": 10,
     },
     AgentName.INVENTORY_PLANNER: {"supplier_email": None},
+    AgentName.PRICING_ADVISOR: {"margin_floor_pct": 25},
 }
 
 
