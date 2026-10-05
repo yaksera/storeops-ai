@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
       { source: "/health", destination: `${apiUrl}/health` },
     ];
   },
+  async redirects() {
+    return [{ source: "/favicon.ico", destination: "/icon.svg", permanent: true }];
+  },
   async headers() {
     return [
       {

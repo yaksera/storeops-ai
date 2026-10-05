@@ -35,6 +35,8 @@ export interface Proposal {
     factors?: RiskFactor[];
     order?: { name: string; total_minor: number; currency: string; customer_name: string | null };
     forecast?: Record<string, unknown>;
+    price?: { from_minor: number; to_minor: number; currency: string };
+    review?: { rating: number; title: string | null; body: string };
   };
   result: Record<string, unknown> | null;
   error: string | null;

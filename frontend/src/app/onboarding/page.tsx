@@ -11,7 +11,7 @@ import { ConnectShopifyCard } from "@/components/connect-shopify";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { meQueryKey } from "@/hooks/use-me";
-import { api, ApiError, type ShopSummary } from "@/lib/api";
+import { api, ApiError, type Me, type ShopSummary } from "@/lib/api";
 
 function InstallError() {
   const error = useSearchParams().get("error");
@@ -31,8 +31,8 @@ export default function OnboardingPage() {
   const queryClient = useQueryClient();
   const createDemo = useMutation({
     mutationFn: () => api<ShopSummary>("/api/shops/demo", { json: {} }),
-    onSuccess: async (shop) => {
-      await queryClient.invalidateQueries({ queryKey: meQueryKey });
+    onSuccess: (shop) => {
+      queryClient.setQueryData<Me>(meQueryKey, (me) => (me ? { ...me, shops: [...me.shops, shop] } : me));
       router.push(`/app/${shop.id}`);
     },
     onError: (error) => {
