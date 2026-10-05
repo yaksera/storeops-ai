@@ -18,6 +18,7 @@ htmlcov/
 # Node
 node_modules/
 .next/
+next-env.d.ts
 out/
 coverage/
 *.tsbuildinfo
@@ -32,4 +33,5 @@ Thumbs.db
 
 # Local tooling
 CLAUDE.md
+AGENTS.md
 .claude/
