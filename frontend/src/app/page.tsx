@@ -103,6 +103,12 @@ export default function Home() {
           ))}
         </ul>
       </main>
+      <footer className="relative mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 border-t px-6 py-6 text-sm text-muted-foreground">
+        <span>© 2026 StoreOps AI</span>
+        <Link href="/privacy" className="hover:text-foreground">
+          Privacy policy
+        </Link>
+      </footer>
     </div>
   );
 }

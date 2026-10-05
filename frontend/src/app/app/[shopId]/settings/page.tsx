@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, OctagonPause, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { Download, Loader2, OctagonPause, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -349,6 +350,68 @@ function TeamCard() {
   );
 }
 
+interface DataRequest {
+  id: string;
+  received_at: string;
+  customer_email: string | null;
+  orders: number;
+}
+
+function PrivacyCard() {
+  const shop = useShop();
+  const canView = hasRole(shop.role, "admin");
+  const requests = useQuery({
+    queryKey: ["shop", shop.id, "privacy-requests"],
+    queryFn: () => api<DataRequest[]>(`/api/shops/${shop.id}/privacy/requests`),
+    enabled: canView,
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Privacy</CardTitle>
+        <CardDescription>
+          Customer data requests forwarded by Shopify are fulfilled automatically. Download an export to send
+          it to the customer. See the{" "}
+          <Link href="/privacy" className="text-foreground underline underline-offset-4">
+            privacy policy
+          </Link>{" "}
+          for retention details.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!canView ? (
+          <p className="text-sm text-muted-foreground">Admins and owners can see data requests.</p>
+        ) : requests.isPending ? (
+          <Skeleton className="h-12" />
+        ) : requests.isError ? (
+          <ErrorState message={requests.error.message} onRetry={() => requests.refetch()} />
+        ) : requests.data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No customer data requests so far.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {requests.data.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                <span className="flex-1">
+                  {r.customer_email ?? "Unknown customer"}{" "}
+                  <span className="text-muted-foreground">
+                    · {r.orders} order{r.orders === 1 ? "" : "s"} ·{" "}
+                    {new Date(r.received_at).toLocaleDateString()}
+                  </span>
+                </span>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/shops/${shop.id}/privacy/requests/${r.id}/export.json`} download>
+                    <Download aria-hidden /> Export
+                  </a>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <>
@@ -356,6 +419,7 @@ export default function SettingsPage() {
       <div className="grid max-w-4xl gap-6">
         <GuardrailsCard />
         <TeamCard />
+        <PrivacyCard />
       </div>
     </>
   );

@@ -6,6 +6,7 @@ import {
   Boxes,
   CheckCheck,
   ChevronsUpDown,
+  CreditCard,
   LineChart,
   LogOut,
   Menu,
@@ -58,6 +59,7 @@ function navItems(shopId: string): NavItem[] {
     { href: `${base}/insights`, label: "Insights", icon: LineChart, ready: true },
     { href: `${base}/agents`, label: "Agents", icon: Sparkles, ready: true },
     { href: `${base}/audit`, label: "Audit log", icon: ScrollText, ready: true },
+    { href: `${base}/billing`, label: "Plan & usage", icon: CreditCard, ready: true },
     { href: `${base}/settings`, label: "Settings", icon: Settings, ready: true },
   ];
 }
