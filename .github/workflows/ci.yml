@@ -100,7 +100,10 @@ jobs:
           npm run build
           nohup npm start > web.log 2>&1 &
           npx playwright install --with-deps chromium
-          npx wait-on -t 60000 http://localhost:3000 http://localhost:8000/ready
+          for url in http://localhost:8000/ready http://localhost:3000/login; do
+            for _ in $(seq 60); do curl -fsS -o /dev/null "$url" && break; sleep 1; done
+            curl -fsS -o /dev/null "$url"
+          done
       - name: Playwright
         working-directory: frontend
         run: npm run test:e2e
