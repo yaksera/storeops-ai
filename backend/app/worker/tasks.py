@@ -1,6 +1,7 @@
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
+from datetime import timedelta
 from typing import Any
 
 from arq import cron
@@ -13,12 +14,16 @@ from app.core.queue import get_queue
 from app.core.redis import get_redis
 from app.demo import simulator
 from app.models import ActionProposal, Approval, Shop
-from app.models.enums import ActorType
+from app.models.base import utcnow
+from app.models.enums import ActorType, EventSource, ShopMode, ShopStatus
 from app.pipeline.processor import process_event
+from app.shopify import sync
 
 logger = logging.getLogger("storeops.worker")
 
 Task = Callable[..., Coroutine[Any, Any, Any]]
+
+INITIAL_SYNC_DAYS = 90
 
 
 async def ping(ctx: dict[str, Any]) -> str:
@@ -67,6 +72,50 @@ async def expire_proposals(ctx: dict[str, Any]) -> int:
         return await runner.expire_proposals(db, get_redis())
 
 
+async def initial_sync(ctx: dict[str, Any], shop_id: str) -> dict[str, int] | None:
+    async with get_sessionmaker()() as db:
+        shop = await db.get(Shop, uuid.UUID(shop_id))
+        if shop is None:
+            return None
+        return await sync.sync_shop(
+            db,
+            get_redis(),
+            get_queue(),
+            shop,
+            since=utcnow() - timedelta(days=INITIAL_SYNC_DAYS),
+            source=EventSource.RECONCILIATION,
+        )
+
+
+async def reconcile_shops(ctx: dict[str, Any]) -> int:
+    """Nightly: re-sync recent orders and products so missed webhooks are repaired."""
+    async with get_sessionmaker()() as db:
+        shops = (
+            await db.scalars(
+                select(Shop).where(
+                    Shop.mode == ShopMode.LIVE,
+                    Shop.status == ShopStatus.ACTIVE,
+                    Shop.access_token_encrypted.is_not(None),
+                )
+            )
+        ).all()
+        done = 0
+        for shop in shops:
+            try:
+                await sync.sync_shop(
+                    db,
+                    get_redis(),
+                    get_queue(),
+                    shop,
+                    since=sync.reconciliation_window(),
+                    source=EventSource.RECONCILIATION,
+                )
+                done += 1
+            except Exception:
+                logger.exception("reconciliation failed", extra={"shop": shop.domain})
+        return done
+
+
 async def simulator_tick(ctx: dict[str, Any]) -> int:
     if not get_settings().demo_mode_enabled:
         return 0
@@ -89,9 +138,11 @@ FUNCTIONS: list[Task] = [
     process_webhook_event,
     run_demo_scenario,
     execute_approved_proposal,
+    initial_sync,
 ]
 CRON_JOBS: list[Any] = [
     cron(simulator_tick, second=_tick_seconds(), run_at_startup=False, unique=True, timeout=30),
     cron(scan_abandoned_checkouts, second={5, 35}, unique=True, timeout=55),
     cron(expire_proposals, second={50}, unique=True, timeout=55),
+    cron(reconcile_shops, hour={9}, minute={15}, unique=True, timeout=3600),
 ]

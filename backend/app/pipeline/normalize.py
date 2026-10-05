@@ -6,7 +6,7 @@ already stored (`updated_at`), so duplicate and out-of-order deliveries are harm
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     ActionProposal,
+    AuditLog,
     Checkout,
     Customer,
     InventorySnapshot,
@@ -29,11 +30,13 @@ from app.models import (
 )
 from app.models.base import utcnow
 from app.models.enums import (
+    ActorType,
     CheckoutStatus,
     MessageAuthor,
     MessageDirection,
     ProposalStatus,
     ReviewSource,
+    ShopStatus,
     TicketChannel,
 )
 
@@ -503,7 +506,40 @@ async def handle_support_message(db: AsyncSession, shop: Shop, p: Payload) -> No
     )
 
 
+UNINSTALL_RETENTION = timedelta(hours=48)
+
+
+async def handle_uninstalled(db: AsyncSession, shop: Shop, p: Payload) -> NormalizeResult:
+    """Revoke access, stop all agent work and schedule data deletion."""
+    now = utcnow()
+    shop.status = ShopStatus.UNINSTALLED
+    shop.access_token_encrypted = None
+    shop.uninstalled_at = now
+    shop.data_deletion_due_at = now + UNINSTALL_RETENTION
+    await db.execute(
+        update(ActionProposal)
+        .where(
+            ActionProposal.shop_id == shop.id,
+            ActionProposal.status.in_([ProposalStatus.PROPOSED, ProposalStatus.APPROVED]),
+        )
+        .values(status=ProposalStatus.EXPIRED, error="App was uninstalled")
+    )
+    db.add(
+        AuditLog(
+            shop_id=shop.id,
+            actor_type=ActorType.SYSTEM,
+            action="shopify.uninstalled",
+            target_type="shop",
+            target_id=str(shop.id),
+            details={"data_deletion_due_at": shop.data_deletion_due_at.isoformat()},
+        )
+    )
+    await db.flush()
+    return NormalizeResult(changes=[Change("shop.uninstalled", {"id": str(shop.id)})])
+
+
 HANDLERS: dict[str, Handler] = {
+    "app/uninstalled": handle_uninstalled,
     "orders/create": handle_order,
     "orders/updated": handle_order,
     "orders/cancelled": handle_order_cancelled,
