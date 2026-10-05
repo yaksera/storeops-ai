@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.crypto import encrypt_secret
-from app.models import Membership, Shop, User
+from app.models import AgentConfig, Membership, Shop, User
 from app.models.base import utcnow
-from app.models.enums import ActorType, Role, ShopMode, ShopStatus
-from app.services import audit
+from app.models.enums import ActorType, AgentName, Role, ShopMode, ShopStatus
+from app.services import audit, billing
 from app.services.shops import create_shop
 from app.shopify.client import ShopifyClient, ShopifyError, http_client, user_errors
 from app.shopify.sync import SHOP_QUERY
@@ -33,6 +33,7 @@ WEBHOOK_TOPICS = (
     "CHECKOUTS_UPDATE",
     "FULFILLMENTS_CREATE",
     "APP_UNINSTALLED",
+    "APP_SUBSCRIPTIONS_UPDATE",
 )
 
 WEBHOOK_MUTATION = """
@@ -124,6 +125,9 @@ async def complete_install(
                 if "taken" not in str(exc).lower():
                     raise
 
+    limit = await billing.live_store_limit_reason(db, user.id, shop_domain)
+    if limit:
+        raise OAuthError(limit)
     shop = await db.scalar(select(Shop).where(Shop.domain == shop_domain))
     created = shop is None
     if shop is None:
@@ -136,6 +140,11 @@ async def complete_install(
             currency=info["currencyCode"],
             timezone=info["ianaTimezone"],
         )
+        # Free plan: one agent on a live store. Fraud Guard protects revenue from day one.
+        for config in (
+            await db.scalars(select(AgentConfig).where(AgentConfig.shop_id == shop.id))
+        ).all():
+            config.enabled = config.agent in (AgentName.ORCHESTRATOR, AgentName.FRAUD_GUARD)
     else:
         membership = await db.scalar(
             select(Membership).where(Membership.shop_id == shop.id, Membership.user_id == user.id)

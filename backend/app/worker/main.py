@@ -31,6 +31,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
+    queue_name = get_settings().worker_queue
     max_jobs = 50
     job_timeout = 60
     keep_result = 60

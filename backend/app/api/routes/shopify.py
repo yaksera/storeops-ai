@@ -16,6 +16,7 @@ from app.models import Shop, User
 from app.models.base import utcnow
 from app.models.enums import EventSource
 from app.pipeline.ingest import ingest_event
+from app.services import billing
 from app.shopify import oauth
 from app.shopify.client import ShopifyError
 from app.shopify.security import is_valid_shop_domain, verify_query, verify_webhook
@@ -148,5 +149,6 @@ async def shopify_webhook(
         payload=payload,
         source=EventSource.SHOPIFY,
         triggered_at=triggered_at,
+        priority=billing.spec(shop).priority,
     )
     return Response(status_code=status.HTTP_200_OK)

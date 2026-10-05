@@ -31,6 +31,7 @@ async def ingest_event(
     payload: dict[str, Any],
     source: EventSource,
     triggered_at: datetime | None = None,
+    priority: bool = False,
 ) -> IngestResult:
     """Persist the raw event (deduplicated on `webhook_id`) and enqueue processing.
 
@@ -57,7 +58,7 @@ async def ingest_event(
         return IngestResult(event_id=None, duplicate=True)
     await db.commit()
     # Job id = event id, so a retried enqueue can't create a second job for the same event.
-    await queue.enqueue(PROCESS_JOB, str(event_id), job_id=f"wh:{event_id}")
+    await queue.enqueue(PROCESS_JOB, str(event_id), job_id=f"wh:{event_id}", priority=priority)
     await db.execute(
         update(WebhookEvent)
         .where(WebhookEvent.id == event_id, WebhookEvent.status == WebhookStatus.RECEIVED)

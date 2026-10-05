@@ -31,14 +31,19 @@ from app.models import (
 from app.models.base import utcnow
 from app.models.enums import (
     ActorType,
+    BillingProvider,
     CheckoutStatus,
     MessageAuthor,
     MessageDirection,
+    Plan,
     ProposalStatus,
     ReviewSource,
     ShopStatus,
     TicketChannel,
 )
+from app.services import billing
+from app.services.privacy import export_customer_data, redact_customer
+from app.shopify.billing import plan_from_name
 
 Payload = dict[str, Any]
 
@@ -540,7 +545,46 @@ async def handle_uninstalled(db: AsyncSession, shop: Shop, p: Payload) -> Normal
     return NormalizeResult(changes=[Change("shop.uninstalled", {"id": str(shop.id)})])
 
 
+async def handle_data_request(db: AsyncSession, shop: Shop, p: Payload) -> NormalizeResult:
+    await export_customer_data(db, shop, p)
+    return NormalizeResult()
+
+
+async def handle_customer_redact(db: AsyncSession, shop: Shop, p: Payload) -> NormalizeResult:
+    await redact_customer(db, shop, p)
+    return NormalizeResult()
+
+
+async def handle_subscription_update(db: AsyncSession, shop: Shop, p: Payload) -> NormalizeResult:
+    sub = p.get("app_subscription") or {}
+    status = str(sub.get("status") or "").upper()
+    plan = plan_from_name(sub.get("name"))
+    if status == "ACTIVE" and plan is not None:
+        target = plan
+    elif status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN"}:
+        target = Plan.FREE
+    else:
+        return NormalizeResult(stale=True)
+    if target != shop.plan:
+        await billing.apply_plan(
+            db,
+            shop,
+            target,
+            provider=BillingProvider.SHOPIFY,
+            external_id=sub.get("admin_graphql_api_id"),
+            actor_type=ActorType.SYSTEM,
+            actor_id=None,
+            now=utcnow(),
+        )
+    return NormalizeResult(changes=[Change("billing.updated", {"plan": target.value})])
+
+
+COMPLIANCE_TOPICS = frozenset({"customers/data_request", "customers/redact", "shop/redact"})
+
 HANDLERS: dict[str, Handler] = {
+    "customers/data_request": handle_data_request,
+    "customers/redact": handle_customer_redact,
+    "app_subscriptions/update": handle_subscription_update,
     "app/uninstalled": handle_uninstalled,
     "orders/create": handle_order,
     "orders/updated": handle_order,
