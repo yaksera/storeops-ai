@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
-    database_url: str = "postgresql+asyncpg://storeops:storeops@localhost:5432/storeops"
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql+asyncpg://storeops:storeops@127.0.0.1:5432/storeops"
+    redis_url: str = "redis://127.0.0.1:6379/0"
 
     secret_key: SecretStr = SecretStr("dev-insecure-secret-change-me")
     token_encryption_key: SecretStr | None = Field(
