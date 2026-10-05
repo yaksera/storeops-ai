@@ -35,3 +35,6 @@ Thumbs.db
 CLAUDE.md
 AGENTS.md
 .claude/
+
+# Local services
+dump.rdb
