@@ -54,7 +54,63 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run format:check
+      - run: npm test
       - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storeops
+          POSTGRES_PASSWORD: storeops
+          POSTGRES_DB: storeops
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U storeops" --health-interval 2s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+asyncpg://storeops:storeops@localhost:5432/storeops
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Start API and worker
+        working-directory: backend
+        run: |
+          uv sync --frozen
+          uv run alembic upgrade head
+          nohup uv run uvicorn app.main:app --port 8000 > api.log 2>&1 &
+          nohup uv run arq app.worker.main.WorkerSettings > worker.log 2>&1 &
+      - name: Build and start web
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          nohup npm start > web.log 2>&1 &
+          npx playwright install --with-deps chromium
+          npx wait-on -t 60000 http://localhost:3000 http://localhost:8000/ready
+      - name: Playwright
+        working-directory: frontend
+        run: npm run test:e2e
+      - if: failure()
+        run: tail -n 200 backend/api.log backend/worker.log frontend/web.log
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results
 
   docker:
     runs-on: ubuntu-latest
