@@ -8,7 +8,7 @@ os.environ["LOG_JSON"] = "false"
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["AUTH_RATE_LIMIT_PER_MINUTE"] = "1000"
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import fakeredis
@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import dispose_engine, get_engine, get_sessionmaker
-from app.core.redis import set_redis
+from app.core.queue import set_queue
+from app.core.redis import get_redis, set_redis
 from app.main import create_app
 from app.models import Base
 
@@ -62,8 +63,37 @@ async def redis() -> AsyncIterator[fakeredis.FakeAsyncRedis]:
     set_redis(None)
 
 
+class InlineQueue:
+    """Runs jobs immediately in-process, like a worker with zero latency."""
+
+    def __init__(self) -> None:
+        self.jobs: list[tuple[str, tuple[object, ...], str | None]] = []
+
+    async def enqueue(self, function: str, *args: object, job_id: str | None = None) -> None:
+        import uuid
+
+        from app.demo import simulator
+        from app.pipeline.processor import process_event
+
+        self.jobs.append((function, args, job_id))
+        if function == "process_webhook_event":
+            await process_event(get_sessionmaker(), get_redis(), uuid.UUID(str(args[0])))
+        elif function == "run_demo_scenario":
+            await simulator.run_scenario(
+                get_sessionmaker(), get_redis(), self, uuid.UUID(str(args[0])), str(args[1]), 0
+            )
+
+
 @pytest.fixture
-def app(redis: fakeredis.FakeAsyncRedis) -> FastAPI:
+def queue(redis: fakeredis.FakeAsyncRedis) -> Iterator[InlineQueue]:
+    inline = InlineQueue()
+    set_queue(inline)
+    yield inline
+    set_queue(None)
+
+
+@pytest.fixture
+def app(redis: fakeredis.FakeAsyncRedis, queue: InlineQueue) -> FastAPI:
     return create_app()
 
 

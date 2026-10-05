@@ -6,6 +6,8 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging
+from app.core.queue import close_queue
+from app.core.redis import close_redis
 from app.worker import tasks
 
 logger = logging.getLogger("storeops.worker")
@@ -18,6 +20,8 @@ async def startup(ctx: dict[str, Any]) -> None:
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    await close_queue()
+    await close_redis()
     await dispose_engine()
 
 
