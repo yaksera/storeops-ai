@@ -59,6 +59,30 @@ shipping delay. **Pause demo traffic** stops the simulator. Simulated events go 
 ingest pipeline as real webhooks. Demo mode needs no API keys and never contacts Shopify or sends
 email.
 
+## Agents
+
+Every agent follows the same pipeline: **typed proposal → guardrails → approval (if required) →
+execute → audit log**. Each decision is stored in `agent_runs` with its inputs, output, model,
+prompt version, cost and latency. Approvals record who decided and any edits.
+
+| Agent | Trigger | Does |
+|---|---|---|
+| Fraud Guard | new order | Scores 0–100 from address mismatch, high-risk countries, payment status, unusual quantity, new high-value customers, disposable email and order velocity. At or above the shop's threshold it proposes a hold, with a plain-language explanation. |
+| Inventory Planner | stock change | Forecasts days to stockout from 30/90-day moving averages with weekday seasonality. Below the reorder point it drafts a supplier PO email (always needs approval). |
+| Cart Recovery | checkout abandoned past a threshold | Sends a personal email naming the products in the cart, with up to 2 reminders. The second reminder can carry a unique code (≤ 10 %, 48 h). Requires marketing consent, includes an unsubscribe link and a physical address, and stops once the order completes. |
+
+**Autonomy** is set per agent. `off` ignores events. `suggest` puts every action in the approval
+queue. `auto` acts within limits, but high-risk actions and anything a guardrail escalates still
+need a human.
+
+**Guardrails** run when a proposal is created and again just before it executes: per-shop kill
+switch, dry-run mode, per-agent daily caps, max discount %, refund ceiling, consent and unsubscribe
+checks, a CAN-SPAM physical address, and quiet hours.
+
+With `OPENROUTER_API_KEY` set, live stores also use an LLM for explanations and email copy, falling
+back to the deterministic rules on any failure. Every call is logged to `llm_calls` with tokens and
+cost. Demo stores never call the LLM.
+
 ## Quick start
 
 Requirements: Docker with Compose v2.
