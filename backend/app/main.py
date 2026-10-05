@@ -27,6 +27,7 @@ from app.api.routes import (
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging, request_id_var
+from app.core.observability import init_sentry, init_tracing
 from app.core.queue import close_queue
 from app.core.redis import close_redis
 
@@ -93,6 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["content-type", "x-csrf-token", "last-event-id", "x-request-id"],
     )
+
+    init_sentry(settings, "api")
+    init_tracing(settings, "api", app)
 
     app.include_router(health.router)
     app.include_router(auth.router)

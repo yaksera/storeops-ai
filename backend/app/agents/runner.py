@@ -159,13 +159,31 @@ async def _llm_for(db: AsyncSession, shop: Shop, now: datetime) -> LlmClient | N
     return LlmClient(settings, db, shop.id)
 
 
+async def load_context(
+    db: AsyncSession, shop_id: uuid.UUID
+) -> tuple[ShopSettings, dict[AgentName, AgentConfig]]:
+    """Settings and every agent config in two queries, shared by all agents for one event."""
+    settings = (
+        await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    ).scalar_one()
+    configs = (await db.scalars(select(AgentConfig).where(AgentConfig.shop_id == shop_id))).all()
+    return settings, {c.agent: c for c in configs}
+
+
 async def run_agent(
-    db: AsyncSession, redis: Redis, shop: Shop, agent_name: AgentName, change: Change
+    db: AsyncSession,
+    redis: Redis,
+    shop: Shop,
+    agent_name: AgentName,
+    change: Change,
+    context: tuple[ShopSettings, dict[AgentName, AgentConfig]] | None = None,
 ) -> AgentRun | None:
     agent = REGISTRY.get(agent_name)
     if agent is None or change.kind not in agent.triggers:
         return None
-    settings, config = await _load(db, shop.id, agent_name)
+    if context is None:
+        context = await load_context(db, shop.id)
+    settings, config = context[0], context[1][agent_name]
     if not config.enabled or config.autonomy == Autonomy.OFF:
         return None
     now = utcnow()
@@ -204,8 +222,9 @@ async def run_agent(
             agent.decide(ctx, change), timeout=get_settings().agent_timeout_seconds
         )
         if decision is None:
-            await db.rollback()
-            await db.refresh(shop)
+            # Nothing to record: drop the provisional run without rolling back the session.
+            await db.delete(run)
+            await db.commit()
             return None
         await agent.after_decide(ctx, change, decision)
         _finish_run(run, decision, started)
@@ -213,6 +232,9 @@ async def run_agent(
     except Exception as exc:
         await db.rollback()
         await db.refresh(shop)
+        await db.refresh(settings)
+        for loaded in context[1].values():
+            await db.refresh(loaded)
         logger.exception("agent failed", extra={"agent": agent_name.value, "shop_id": str(shop.id)})
         run = AgentRun(
             shop_id=shop.id,
