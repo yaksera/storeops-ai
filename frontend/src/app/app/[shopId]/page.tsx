@@ -1,5 +1,7 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { ErrorState } from "@/components/empty-state";
 import { ActivityStream } from "@/components/live/activity-stream";
 import { AgentPanel } from "@/components/live/agent-panel";
@@ -12,6 +14,7 @@ import { hasRole, useShop } from "@/components/shop-context";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLiveOps, useNow } from "@/hooks/use-live-ops";
+import { pendingKey } from "@/lib/agents";
 
 function currentLocalHour(timeZone: string, now: number): number {
   return (
@@ -22,7 +25,11 @@ function currentLocalHour(timeZone: string, now: number): number {
 export default function LiveOpsPage() {
   const shop = useShop();
   const now = useNow();
-  const { snapshot, state, status, setState } = useLiveOps(shop.id, shop.timezone);
+  const queryClient = useQueryClient();
+  const { snapshot, state, status, setState } = useLiveOps(shop.id, shop.timezone, (event) => {
+    if (event.type.startsWith("proposal."))
+      void queryClient.invalidateQueries({ queryKey: pendingKey(shop.id) });
+  });
   const canOperate = hasRole(shop.role, "admin");
   const sim = snapshot.data?.simulator;
 
