@@ -99,7 +99,8 @@ make dev
 | Health / readiness | http://localhost:8000/health · http://localhost:8000/ready |
 
 Sign up, then choose **Launch demo store** on the onboarding screen. Demo mode needs no API keys and
-never sends anything externally.
+never sends anything externally. To connect a real store, follow
+[docs/shopify-setup.md](docs/shopify-setup.md).
 
 ### Without Docker
 

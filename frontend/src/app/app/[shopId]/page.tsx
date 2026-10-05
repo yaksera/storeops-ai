@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 
 import { ErrorState } from "@/components/empty-state";
 import { ActivityStream } from "@/components/live/activity-stream";
@@ -63,6 +64,16 @@ export default function LiveOpsPage() {
         }
       />
 
+      {snapshot.data?.sync?.state === "syncing" && (
+        <div
+          role="status"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <Loader2 className="size-4 animate-spin text-primary" aria-hidden />
+          Importing your store: {snapshot.data.sync.products} products so far, orders next. Agents go live as
+          soon as it finishes.
+        </div>
+      )}
       {snapshot.isError && !state ? (
         <ErrorState message={snapshot.error.message} onRetry={() => snapshot.refetch()} />
       ) : !state ? (

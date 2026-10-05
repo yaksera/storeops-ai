@@ -82,6 +82,8 @@ export interface Dashboard {
   activity: LiveEvent<ActivityData>[];
   last_event_id: string;
   simulator: { running: boolean; scenarios: Scenario[] } | null;
+  pending_approvals: number;
+  sync: { state: "syncing" | "done"; products: number; orders: number } | null;
 }
 
 export interface LiveState {
