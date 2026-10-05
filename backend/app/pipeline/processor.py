@@ -53,6 +53,7 @@ async def process_event(
 
         event.status = WebhookStatus.SKIPPED if result.stale else WebhookStatus.PROCESSED
         event.processed_at = utcnow()
+        final_status = event.status
         await db.commit()
 
         if result.changes:
@@ -66,8 +67,8 @@ async def process_event(
         extra={
             "event_id": str(event_id),
             "topic": topic,
-            "status": event.status.value,
+            "status": final_status.value,
             "duration_ms": round((time.perf_counter() - started) * 1000, 1),
         },
     )
-    return event.status
+    return final_status

@@ -7,13 +7,23 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.demo.catalog import CATALOG, COUNTRIES, FIRST_NAMES, SOURCES
-from app.models import Checkout, Customer, Order, OrderItem, Product, Shop, Variant
+from app.models import (
+    AgentConfig,
+    Checkout,
+    Customer,
+    Order,
+    OrderItem,
+    Product,
+    Shop,
+    ShopSettings,
+    Variant,
+)
 from app.models.base import utcnow
-from app.models.enums import CheckoutStatus
+from app.models.enums import AgentName, Autonomy, CheckoutStatus
 
 HISTORY_DAYS = 35
 BASE_ORDERS_PER_DAY = 28
@@ -32,8 +42,34 @@ def weighted(rng: random.Random, options: tuple[tuple[str, float], ...]) -> str:
     return rng.choices([o for o, _ in options], weights=[w for _, w in options])[0]
 
 
+async def configure_demo_shop(db: AsyncSession, shop: Shop) -> None:
+    """Demo-friendly settings: compressed timings so agents act within a minute or two."""
+    settings = (
+        await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
+    ).scalar_one()
+    settings.sender_name = "Northbound Outdoor Gear"
+    settings.support_email = "help@northbound.example"
+    settings.alert_email = "ops@northbound.example"
+    settings.physical_address = "1200 Trailhead Way, Boulder, CO 80302, USA"
+    configs = {
+        c.agent: c
+        for c in (await db.scalars(select(AgentConfig).where(AgentConfig.shop_id == shop.id))).all()
+    }
+    configs[AgentName.CART_RECOVERY].autonomy = Autonomy.AUTO
+    configs[AgentName.CART_RECOVERY].settings = {
+        "abandon_after_minutes": 2,
+        "reminder_interval_minutes": 5,
+        "discount_pct": 10,
+    }
+    configs[AgentName.INVENTORY_PLANNER].settings = {
+        "supplier_email": "purchasing@northbound-supply.example"
+    }
+    await db.flush()
+
+
 async def seed_demo_shop(db: AsyncSession, shop: Shop, now: datetime | None = None) -> None:
     now = now or utcnow()
+    await configure_demo_shop(db, shop)
     rng = random.Random(shop.id.int)
     next_id = DEMO_ID_BASE
 
@@ -176,24 +212,44 @@ async def seed_demo_shop(db: AsyncSession, shop: Shop, now: datetime | None = No
                     "shopify_updated_at": placed,
                 }
             )
-            checkouts.append(
-                _checkout(shop, token, customer, total, placed, CheckoutStatus.COMPLETED, placed)
+            # Some past orders came back through a recovery email.
+            recovered = customer["accepts_marketing"] and rng.random() < 0.07
+            completed = _checkout(
+                shop,
+                token,
+                customer,
+                total,
+                placed - timedelta(hours=3) if recovered else placed,
+                CheckoutStatus.RECOVERED if recovered else CheckoutStatus.COMPLETED,
+                placed,
+                lines,
             )
+            if recovered:
+                completed["reminders_sent"] = rng.choice((1, 1, 2))
+                completed["last_reminder_at"] = placed - timedelta(minutes=rng.randint(10, 90))
+                completed["recovered_order_id"] = order_id
+            checkouts.append(completed)
             # Roughly one abandoned checkout for every completed one.
             if rng.random() < 0.9:
                 abandoned_at = placed - timedelta(minutes=rng.randint(5, 600))
                 if abandoned_at < now - timedelta(hours=1):
-                    checkouts.append(
-                        _checkout(
-                            shop,
-                            uuid.uuid4().hex,
-                            rng.choice(customers),
-                            rng.choice(variants)["price_minor"],
-                            abandoned_at,
-                            CheckoutStatus.ABANDONED,
-                            None,
-                        )
+                    shopper = rng.choice(customers)
+                    item = rng.choice(variants)
+                    cart = _checkout(
+                        shop,
+                        uuid.uuid4().hex,
+                        shopper,
+                        item["price_minor"],
+                        abandoned_at,
+                        CheckoutStatus.ABANDONED,
+                        None,
+                        [item],
                     )
+                    if shopper["accepts_marketing"] and day_offset > 0:
+                        # Past follow-ups are complete, so the live agent won't re-contact them.
+                        cart["reminders_sent"] = 2
+                        cart["last_reminder_at"] = abandoned_at + timedelta(hours=1)
+                    checkouts.append(cart)
 
     await db.execute(insert(Customer), customers)
     for chunk in range(0, len(orders), 500):
@@ -213,6 +269,7 @@ def _checkout(
     created: datetime,
     status: CheckoutStatus,
     completed: datetime | None,
+    variants: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "id": uuid.uuid4(),
@@ -222,9 +279,20 @@ def _checkout(
         "email": customer["email"],
         "currency": shop.currency,
         "total_minor": total,
-        "line_items": [],
+        "line_items": [
+            {
+                "title": f"{v['_product_title']} - {v['title']}",
+                "variant_id": v["shopify_id"],
+                "sku": v["sku"],
+                "quantity": 1,
+                "price_minor": v["price_minor"],
+            }
+            for v in variants
+        ],
         "status": status,
         "reminders_sent": 0,
+        "last_reminder_at": None,
+        "recovered_order_id": None,
         "completed_at": completed,
         "shopify_created_at": created,
         "shopify_updated_at": completed or created,

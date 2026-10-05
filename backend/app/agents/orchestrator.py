@@ -7,29 +7,19 @@ each agent's live status (what it is looking at right now) and the activity stre
 
 import json
 import uuid
-from dataclasses import dataclass
 from typing import Any
 
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.activity import AGENT_LABELS, Activity, money, publish_activity
+from app.agents.runner import run_agent
 from app.models import AgentConfig, Shop
 from app.models.base import utcnow
 from app.models.enums import AgentName, Autonomy, Severity
 from app.pipeline.normalize import Change
 from app.services import events
-
-AGENT_LABELS: dict[AgentName, str] = {
-    AgentName.ORCHESTRATOR: "Orchestrator",
-    AgentName.FRAUD_GUARD: "Fraud Guard",
-    AgentName.INVENTORY_PLANNER: "Inventory Planner",
-    AgentName.CART_RECOVERY: "Cart Recovery",
-    AgentName.SUPPORT: "Support Agent",
-    AgentName.REVIEW_REPUTATION: "Review & Reputation",
-    AgentName.REVENUE_ANALYST: "Revenue Analyst",
-    AgentName.PRICING_ADVISOR: "Pricing Advisor",
-}
 
 # Which agents care about which domain changes, and how to describe the work they pick up.
 ROUTES: dict[str, list[tuple[AgentName, str]]] = {
@@ -43,6 +33,7 @@ ROUTES: dict[str, list[tuple[AgentName, str]]] = {
         (AgentName.PRICING_ADVISOR, "Reviewing sell-through for {product}"),
     ],
     "checkout.created": [(AgentName.CART_RECOVERY, "Watching a {total} checkout")],
+    "checkout.abandoned": [(AgentName.CART_RECOVERY, "Drafting a follow-up for a {total} cart")],
     "review.created": [(AgentName.REVIEW_REPUTATION, "Reading a {rating}★ review")],
     "ticket.created": [(AgentName.SUPPORT, "Triaging “{subject}”")],
 }
@@ -50,19 +41,6 @@ ROUTES: dict[str, list[tuple[AgentName, str]]] = {
 
 def _agents_key(shop_id: uuid.UUID) -> str:
     return f"shop:{shop_id}:agents"
-
-
-def money(minor: int, currency: str) -> str:
-    symbol = {"USD": "$", "CAD": "CA$", "EUR": "€", "GBP": "£", "AUD": "A$"}.get(currency)
-    amount = f"{minor / 100:,.2f}"
-    return f"{symbol}{amount}" if symbol else f"{amount} {currency}"
-
-
-@dataclass(frozen=True, slots=True)
-class Activity:
-    title: str
-    detail: str
-    severity: Severity = Severity.INFO
 
 
 def describe(change: Change, routed: list[AgentName]) -> Activity | None:
@@ -116,6 +94,12 @@ def describe(change: Change, routed: list[AgentName]) -> Activity | None:
                 f"{d.get('customer_name') or 'A shopper'} has {d['item_count']} item(s) in cart. "
                 f"{handoff}".strip(),
             )
+        case "checkout.abandoned":
+            return Activity(
+                f"Checkout abandoned · {money(d['total_minor'], d['currency'])}",
+                f"{d.get('customer_name') or 'A shopper'} left {d['item_count']} item(s) behind. "
+                f"{handoff}".strip(),
+            )
         case "review.created":
             low = d["rating"] <= 2
             product = f" on {d['product']}" if d.get("product") else ""
@@ -132,31 +116,6 @@ def describe(change: Change, routed: list[AgentName]) -> Activity | None:
                 f"From {d.get('customer_name') or 'a customer'}{order}. {handoff}".strip(),
             )
     return None
-
-
-async def publish_activity(
-    redis: Redis,
-    shop_id: uuid.UUID,
-    activity: Activity,
-    *,
-    kind: str,
-    agent: AgentName | None = None,
-    ref: dict[str, Any] | None = None,
-) -> None:
-    await events.publish(
-        redis,
-        shop_id,
-        "activity",
-        {
-            "id": uuid.uuid4().hex,
-            "kind": kind,
-            "agent": agent.value if agent else None,
-            "title": activity.title,
-            "detail": activity.detail,
-            "severity": activity.severity.value,
-            "ref": ref or {},
-        },
-    )
 
 
 async def set_agent_status(
@@ -214,4 +173,7 @@ async def route(
             await publish_activity(
                 redis, shop.id, activity, kind=change.kind, ref={"id": change.data.get("id")}
             )
+    # Agents run after the dashboard has been told about the change, each in isolation.
+    for agent, change in dispatched:
+        await run_agent(db, redis, shop, agent, change)
     return dispatched
