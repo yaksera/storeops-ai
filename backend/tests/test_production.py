@@ -27,6 +27,19 @@ def test_production_accepts_safe_configuration() -> None:
     assert settings.is_production
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "http://localhost:3000,https://app.example",
+        '["http://localhost:3000","https://app.example"]',
+    ],
+)
+def test_cors_origins_from_environment(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    settings = Settings(_env_file=None)
+    assert settings.cors_origins == ["http://localhost:3000", "https://app.example"]
+
+
 def test_observability_is_opt_in() -> None:
     settings = Settings(_env_file=None)
     assert init_sentry(settings, "api") is False
