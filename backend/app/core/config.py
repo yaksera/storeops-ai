@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from typing import Annotated, Literal
 
+from cryptography.fernet import Fernet
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -12,6 +13,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
+        # `KEY=` lines copied from .env.example mean "not set", not an empty value.
+        env_ignore_empty=True,
         extra="ignore",
     )
 
@@ -106,6 +109,19 @@ class Settings(BaseSettings):
             for prefix in ("postgres://", "postgresql://"):
                 if value.startswith(prefix):
                     return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
+
+    @field_validator("token_encryption_key")
+    @classmethod
+    def _valid_fernet_key(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            try:
+                Fernet(value.get_secret_value().encode())
+            except ValueError as exc:
+                raise ValueError(
+                    "TOKEN_ENCRYPTION_KEY must be a Fernet key (generate one with "
+                    "Fernet.generate_key()) or left empty in development"
+                ) from exc
         return value
 
     @field_validator("cors_origins", mode="before")
