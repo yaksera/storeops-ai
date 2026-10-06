@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     demo_mode_enabled: bool = True
     simulator_tick_seconds: float = 3.0
 
+    openrouter_api_key: SecretStr | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    llm_default_model: str = "google/gemini-2.5-flash"
+    llm_timeout_seconds: float = 20.0
+    llm_max_retries: int = 2
+
+    agent_timeout_seconds: float = 30.0
+
     sse_heartbeat_seconds: float = 15.0
     event_stream_maxlen: int = 1000
 

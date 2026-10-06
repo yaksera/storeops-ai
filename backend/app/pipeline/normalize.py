@@ -10,10 +10,11 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    ActionProposal,
     Checkout,
     Customer,
     InventorySnapshot,
@@ -31,6 +32,7 @@ from app.models.enums import (
     CheckoutStatus,
     MessageAuthor,
     MessageDirection,
+    ProposalStatus,
     ReviewSource,
     TicketChannel,
 )
@@ -196,14 +198,24 @@ async def handle_order(db: AsyncSession, shop: Shop, p: Payload) -> NormalizeRes
                 Checkout.shop_id == shop.id, Checkout.token == order.checkout_token
             )
         )
-        if checkout is not None and checkout.status != CheckoutStatus.COMPLETED:
-            checkout.status = (
-                CheckoutStatus.RECOVERED
-                if checkout.reminders_sent > 0
-                else CheckoutStatus.COMPLETED
+        if checkout is not None:
+            reminded = checkout.reminders_sent > 0
+            if checkout.status not in (CheckoutStatus.COMPLETED, CheckoutStatus.RECOVERED):
+                checkout.completed_at = order.processed_at
+            checkout.status = CheckoutStatus.RECOVERED if reminded else CheckoutStatus.COMPLETED
+            if reminded and checkout.recovered_order_id is None:
+                checkout.recovered_order_id = order.id
+            # A completed purchase cancels any follow-up still waiting for approval.
+            await db.execute(
+                update(ActionProposal)
+                .where(
+                    ActionProposal.shop_id == shop.id,
+                    ActionProposal.target_type == "checkout",
+                    ActionProposal.target_id == str(checkout.id),
+                    ActionProposal.status.in_([ProposalStatus.PROPOSED, ProposalStatus.APPROVED]),
+                )
+                .values(status=ProposalStatus.EXPIRED, error="Customer completed the order")
             )
-            checkout.completed_at = order.processed_at
-            checkout.recovered_order_id = order.id if checkout.reminders_sent > 0 else None
 
     await db.flush()
     summary = order_summary(order, customer, sum(int(li.get("quantity") or 1) for li in line_items))
@@ -374,7 +386,9 @@ async def handle_checkout(db: AsyncSession, shop: Shop, p: Payload) -> Normalize
     ]
     checkout.shopify_updated_at = updated_at
     if p.get("completed_at") and checkout.status in (CheckoutStatus.OPEN, CheckoutStatus.ABANDONED):
-        checkout.status = CheckoutStatus.COMPLETED
+        checkout.status = (
+            CheckoutStatus.RECOVERED if checkout.reminders_sent > 0 else CheckoutStatus.COMPLETED
+        )
         checkout.completed_at = parse_ts(p["completed_at"])
     await db.flush()
     return NormalizeResult(

@@ -26,6 +26,15 @@ DEFAULT_AUTONOMY: dict[AgentName, Autonomy] = {
     AgentName.PRICING_ADVISOR: Autonomy.SUGGEST,
 }
 
+DEFAULT_AGENT_SETTINGS: dict[AgentName, dict[str, object]] = {
+    AgentName.CART_RECOVERY: {
+        "abandon_after_minutes": 60,
+        "reminder_interval_minutes": 1440,
+        "discount_pct": 10,
+    },
+    AgentName.INVENTORY_PLANNER: {"supplier_email": None},
+}
+
 
 async def create_shop(
     db: AsyncSession,
@@ -58,7 +67,15 @@ async def create_shop(
         )
     )
     for agent, autonomy in DEFAULT_AUTONOMY.items():
-        db.add(AgentConfig(shop_id=shop.id, agent=agent, autonomy=autonomy, enabled=True))
+        db.add(
+            AgentConfig(
+                shop_id=shop.id,
+                agent=agent,
+                autonomy=autonomy,
+                enabled=True,
+                settings=dict(DEFAULT_AGENT_SETTINGS.get(agent, {})),
+            )
+        )
     audit.record(
         db,
         shop_id=shop.id,

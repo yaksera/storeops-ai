@@ -23,7 +23,7 @@ const MAX_SSE_ERRORS = 3;
  * last event id (the browser re-sends `Last-Event-ID` on reconnect). If SSE keeps failing — e.g.
  * a proxy that buffers streams — it degrades to polling `/events?after=…`.
  */
-export function useLiveOps(shopId: string, timeZone: string) {
+export function useLiveOps(shopId: string, timeZone: string, onEvent?: (event: LiveEvent) => void) {
   const snapshot = useQuery({
     queryKey: ["shop", shopId, "dashboard"],
     queryFn: () => api<Dashboard>(`/api/shops/${shopId}/dashboard`),
@@ -43,6 +43,10 @@ export function useLiveOps(shopId: string, timeZone: string) {
   const source = live.source;
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const lastIdRef = useRef<string>("0-0");
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   const setState = useCallback((update: (s: LiveState | null) => LiveState | null) => {
     setLive((current) => ({ ...current, state: update(current.state) }));
@@ -52,6 +56,7 @@ export function useLiveOps(shopId: string, timeZone: string) {
     (event: LiveEvent) => {
       lastIdRef.current = event.id;
       setState((current) => (current ? applyEvent(current, event, timeZone) : current));
+      onEventRef.current?.(event);
     },
     [timeZone, setState],
   );

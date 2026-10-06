@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Boxes,
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useMe } from "@/hooks/use-me";
+import { pendingKey, type ProposalList } from "@/lib/agents";
 import { api, ApiError, type Me, type ShopSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -50,19 +51,29 @@ function navItems(shopId: string): NavItem[] {
   const base = `/app/${shopId}`;
   return [
     { href: base, label: "Live Ops", icon: Activity, ready: true },
-    { href: `${base}/approvals`, label: "Approvals", icon: CheckCheck, ready: false },
-    { href: `${base}/inventory`, label: "Inventory", icon: Boxes, ready: false },
-    { href: `${base}/recovery`, label: "Recovery", icon: ShoppingCart, ready: false },
+    { href: `${base}/approvals`, label: "Approvals", icon: CheckCheck, ready: true },
+    { href: `${base}/inventory`, label: "Inventory", icon: Boxes, ready: true },
+    { href: `${base}/recovery`, label: "Recovery", icon: ShoppingCart, ready: true },
     { href: `${base}/support`, label: "Support", icon: MessageSquareText, ready: false },
     { href: `${base}/insights`, label: "Insights", icon: LineChart, ready: false },
-    { href: `${base}/agents`, label: "Agents", icon: Sparkles, ready: false },
-    { href: `${base}/audit`, label: "Audit log", icon: ScrollText, ready: false },
+    { href: `${base}/agents`, label: "Agents", icon: Sparkles, ready: true },
+    { href: `${base}/audit`, label: "Audit log", icon: ScrollText, ready: true },
     { href: `${base}/settings`, label: "Settings", icon: Settings, ready: true },
   ];
 }
 
+function usePendingApprovals(shopId: string): number {
+  const { data } = useQuery({
+    queryKey: pendingKey(shopId),
+    queryFn: () => api<ProposalList>(`/api/shops/${shopId}/proposals?status=proposed&limit=1`),
+    refetchInterval: 10_000,
+  });
+  return data?.pending ?? 0;
+}
+
 function NavList({ shopId, onNavigate }: { shopId: string; onNavigate?: () => void }) {
   const pathname = usePathname();
+  const pending = usePendingApprovals(shopId);
   return (
     <ul className="grid gap-0.5">
       {navItems(shopId).map(({ href, label, icon: Icon, ready }) => {
@@ -71,6 +82,15 @@ function NavList({ shopId, onNavigate }: { shopId: string; onNavigate?: () => vo
           <>
             <Icon className="size-4" aria-hidden />
             <span className="flex-1">{label}</span>
+            {label === "Approvals" && pending > 0 && (
+              <Badge
+                variant="warning"
+                className="tabular px-1.5 py-0 text-[11px]"
+                aria-label={`${pending} pending`}
+              >
+                {pending}
+              </Badge>
+            )}
             {!ready && (
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                 Soon

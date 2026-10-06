@@ -103,6 +103,8 @@ export const LIVE_EVENT_TYPES = [
   "order.refunded",
   "order.fulfilled",
   "simulator.status",
+  "proposal.created",
+  "proposal.updated",
 ] as const;
 
 const MAX_ORDERS = 40;

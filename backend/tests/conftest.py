@@ -78,6 +78,10 @@ class InlineQueue:
         self.jobs.append((function, args, job_id))
         if function == "process_webhook_event":
             await process_event(get_sessionmaker(), get_redis(), uuid.UUID(str(args[0])))
+        elif function == "execute_approved_proposal":
+            from app.worker.tasks import execute_approved_proposal
+
+            await execute_approved_proposal({}, str(args[0]))
         elif function == "run_demo_scenario":
             await simulator.run_scenario(
                 get_sessionmaker(), get_redis(), self, uuid.UUID(str(args[0])), str(args[1]), 0

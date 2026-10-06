@@ -12,13 +12,14 @@ from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy import func, select
 
-from app.agents.orchestrator import AGENT_LABELS, agent_states
+from app.agents.activity import AGENT_LABELS
+from app.agents.orchestrator import agent_states
 from app.api.deps import DbSession, RedisDep, SettingsDep, ShopAdmin, ShopViewer
 from app.core.queue import get_queue
 from app.demo import simulator
-from app.models import AgentConfig, AgentRun, Customer, Order, OrderItem
+from app.models import ActionProposal, AgentConfig, Customer, Order, OrderItem
 from app.models.base import utcnow
-from app.models.enums import ActorType, AgentName, ShopMode
+from app.models.enums import ActorType, AgentName, ProposalStatus, ShopMode
 from app.pipeline.normalize import order_summary
 from app.services import audit, events, metrics
 
@@ -54,6 +55,7 @@ class Dashboard(BaseModel):
     agents: list[AgentOut]
     activity: list[EventOut]
     last_event_id: str
+    pending_approvals: int
     simulator: dict[str, Any] | None
 
 
@@ -65,9 +67,13 @@ async def _agents(ctx: ShopViewer, db: DbSession, redis: Redis) -> list[AgentOut
     counts = dict(
         (
             await db.execute(
-                select(AgentRun.agent, func.count(AgentRun.id))
-                .where(AgentRun.shop_id == ctx.shop.id, AgentRun.started_at >= start)
-                .group_by(AgentRun.agent)
+                select(ActionProposal.agent, func.count(ActionProposal.id))
+                .where(
+                    ActionProposal.shop_id == ctx.shop.id,
+                    ActionProposal.status == ProposalStatus.EXECUTED,
+                    ActionProposal.executed_at >= start,
+                )
+                .group_by(ActionProposal.agent)
             )
         ).all()
     )
@@ -130,6 +136,15 @@ async def dashboard(ctx: ShopViewer, db: DbSession, redis: RedisDep) -> Dashboar
         agents=await _agents(ctx, db, redis),
         activity=[EventOut(id=e.id, type=e.type, data=e.data, at=e.at) for e in activity],
         last_event_id=last_id,
+        pending_approvals=int(
+            await db.scalar(
+                select(func.count(ActionProposal.id)).where(
+                    ActionProposal.shop_id == ctx.shop.id,
+                    ActionProposal.status == ProposalStatus.PROPOSED,
+                )
+            )
+            or 0
+        ),
         simulator=sim,
     )
 

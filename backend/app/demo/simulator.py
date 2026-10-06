@@ -17,7 +17,7 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agents.orchestrator import Activity, publish_activity
+from app.agents.activity import Activity, publish_activity
 from app.core.queue import JobQueue
 from app.demo.catalog import (
     ANGRY_REVIEW,
@@ -32,9 +32,9 @@ from app.demo.catalog import (
     SUPPORT_TEMPLATES,
 )
 from app.demo.seed import DEMO_ID_BASE, weighted
-from app.models import Customer, Order, Product, Shop, Variant
+from app.models import Checkout, Customer, Order, Product, Shop, Variant
 from app.models.base import utcnow
-from app.models.enums import EventSource, ShopMode, ShopStatus
+from app.models.enums import CheckoutStatus, EventSource, ShopMode, ShopStatus
 from app.pipeline.ingest import ingest_event
 
 WATCHED_KEY = "demo:watched"
@@ -400,6 +400,58 @@ class DemoStore:
             },
         )
 
+    async def maybe_recover_carts(self) -> int:
+        """Some shoppers come back after a recovery email and finish checking out."""
+        rows = (
+            await self.db.execute(
+                select(Checkout, Customer)
+                .join(Customer, Customer.id == Checkout.customer_id)
+                .where(
+                    Checkout.shop_id == self.shop.id,
+                    Checkout.status == CheckoutStatus.ABANDONED,
+                    Checkout.reminders_sent > 0,
+                    Checkout.last_reminder_at > utcnow() - timedelta(minutes=15),
+                )
+                .limit(10)
+            )
+        ).all()
+        by_variant = {item.variant_shopify_id: item for item in self.stock}
+        recovered = 0
+        for checkout, customer in rows:
+            if self.rng.random() >= 0.12:
+                continue
+            lines = [
+                Line(by_variant[int(li["variant_id"])], int(li.get("quantity") or 1))
+                for li in checkout.line_items
+                if li.get("variant_id") and int(li["variant_id"]) in by_variant
+            ]
+            lines = [line for line in lines if line.item.quantity >= line.quantity]
+            if not lines:
+                continue
+            stamp = utcnow().isoformat()
+            customer_payload = {
+                "id": customer.shopify_id,
+                "email": customer.email,
+                "first_name": customer.first_name,
+                "orders_count": customer.orders_count + 1,
+                "accepts_marketing": customer.accepts_marketing,
+                "default_address": {"country_code": customer.country_code},
+            }
+            payload = self.checkout_payload(
+                checkout.shopify_id or await self._next_id(),
+                checkout.token,
+                customer_payload,
+                lines,
+            )
+            await self.emit(
+                "checkouts/update", {**payload, "updated_at": stamp, "completed_at": stamp}
+            )
+            await self.place_order(
+                customer_payload, lines, checkout_token=checkout.token, source="email"
+            )
+            recovered += 1
+        return recovered
+
     async def maybe_restock(self) -> None:
         for item in self.stock:
             if item.quantity <= 3 and self.rng.random() < 0.03:
@@ -455,6 +507,7 @@ class DemoStore:
             await self.support_email()
         if self.rng.random() < 0.12:
             await self.fulfil_one()
+        await self.maybe_recover_carts()
         await self.maybe_restock()
 
     async def fraudulent_order(self) -> str | None:
