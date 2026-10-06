@@ -245,7 +245,7 @@ class SupportAgent:
                 kind="support.escalated",
                 severity=Severity.WARNING,
                 title=f"Needs a human: {ticket.subject}",
-                body=f"Handed over because the {ticket.escalation_reason}.",
+                body=f"Handed over: {ticket.escalation_reason}.",
                 data={"ticket_id": str(ticket.id)},
             )
         )

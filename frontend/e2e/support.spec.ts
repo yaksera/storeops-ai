@@ -14,7 +14,7 @@ test("angry customer is handed over and a human reply resolves it", async ({ pag
   await expect(page.getByText("Scenario finished: Angry review")).toBeVisible();
 
   await page.goto(`${base}/support`);
-  await expect(page.getByText(/Handed over because the customer is upset/)).toBeVisible();
+  await expect(page.getByText(/Handed over: customer is upset/)).toBeVisible();
   await page.getByLabel("Reply").fill("We're so sorry. A replacement is on its way today.");
   await page.getByRole("button", { name: "Send and resolve" }).click();
   await expect(page.getByText("Reply sent")).toBeVisible();

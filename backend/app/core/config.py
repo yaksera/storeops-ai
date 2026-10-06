@@ -1,8 +1,9 @@
+import json
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -18,8 +19,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
-    database_url: str = "postgresql+asyncpg://storeops:storeops@localhost:5432/storeops"
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql+asyncpg://storeops:storeops@127.0.0.1:5432/storeops"
+    redis_url: str = "redis://127.0.0.1:6379/0"
 
     secret_key: SecretStr = SecretStr("dev-insecure-secret-change-me")
     token_encryption_key: SecretStr | None = Field(
@@ -28,7 +29,9 @@ class Settings(BaseSettings):
     )
 
     frontend_origin: str = "http://localhost:3000"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:3000"]
+    )
 
     session_cookie_name: str = "storeops_session"
     csrf_cookie_name: str = "storeops_csrf"
@@ -67,13 +70,50 @@ class Settings(BaseSettings):
     worker_queue: str = "arq:queue"
     priority_queue: str = "storeops:priority"
 
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.05
+    otel_exporter_otlp_endpoint: str | None = None
+    release: str | None = None
+
     sse_heartbeat_seconds: float = 15.0
     event_stream_maxlen: int = 1000
+
+    @model_validator(mode="after")
+    def _production_safety(self) -> "Settings":
+        if self.environment != "production":
+            return self
+        problems = []
+        if (
+            self.secret_key.get_secret_value() in {"dev-insecure-secret-change-me", ""}
+            or len(self.secret_key.get_secret_value()) < 32
+        ):
+            problems.append("SECRET_KEY must be a random value of at least 32 characters")
+        if self.token_encryption_key is None:
+            problems.append("TOKEN_ENCRYPTION_KEY is required")
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE must be true (HTTPS)")
+        if not self.frontend_origin.startswith("https://"):
+            problems.append("FRONTEND_ORIGIN must be an https:// URL")
+        if problems:
+            raise ValueError("Unsafe production configuration: " + "; ".join(problems))
+        return self
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _asyncpg_url(cls, value: object) -> object:
+        """Accept the plain `postgres://` URLs hosting providers hand out."""
+        if isinstance(value, str):
+            for prefix in ("postgres://", "postgresql://"):
+                if value.startswith(prefix):
+                    return "postgresql+asyncpg://" + value[len(prefix) :]
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        if isinstance(value, str) and not value.startswith("["):
+        if isinstance(value, str):
+            if value.lstrip().startswith("["):
+                return json.loads(value)
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 

@@ -116,7 +116,7 @@ function TicketPane({ ticketId, onDone }: { ticketId: string; onDone: () => void
         </p>
         {t.escalation_reason && (
           <p className="mt-1 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
-            Handed over because the {t.escalation_reason}.
+            Handed over: {t.escalation_reason}.
           </p>
         )}
       </header>

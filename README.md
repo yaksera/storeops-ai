@@ -4,8 +4,18 @@ Real-time AI operations team for Shopify stores. Agents watch orders, inventory,
 reviews and support in real time, act within seconds, and route anything risky to the merchant for
 approval on a live dashboard.
 
-> 🚧 Under active development. See [docs/product-spec.md](docs/product-spec.md) for the full
-> specification and milestones.
+![Live Ops dashboard](docs/screenshots/live-ops.png)
+
+| Approvals | Support hand-over |
+|---|---|
+| ![Approvals](docs/screenshots/approvals.png) | ![Support](docs/screenshots/support.png) |
+| **Inventory forecasts** | **Insights** |
+| ![Inventory](docs/screenshots/inventory.png) | ![Insights](docs/screenshots/insights.png) |
+| **Agents** | **Recovery** |
+| ![Agents](docs/screenshots/agents.png) | ![Recovery](docs/screenshots/recovery.png) |
+
+Docs: [product spec](docs/product-spec.md) · [Shopify setup](docs/shopify-setup.md) ·
+[deployment](docs/deployment.md) · [five-minute demo script](docs/demo-script.md)
 
 ## Stack
 
@@ -115,7 +125,9 @@ make dev
 | API docs (OpenAPI) | http://localhost:8000/docs |
 | Health / readiness | http://localhost:8000/health · http://localhost:8000/ready |
 
-Sign up, then choose **Launch demo store** on the onboarding screen. Demo mode needs no API keys and
+Sign up, then choose **Launch demo store** on the onboarding screen, or run
+`docker compose exec api python -m app.cli seed` (`make seed` without Docker) for a ready-made
+login (`demo@northbound.example` / `northbound-demo`). Demo mode needs no API keys and
 never sends anything externally. To connect a real store, follow
 [docs/shopify-setup.md](docs/shopify-setup.md).
 
@@ -138,6 +150,7 @@ make web        # terminal 3
 make lint     # ruff, mypy, eslint, tsc, prettier
 make test     # pytest with coverage (needs a storeops_test database) + vitest
 make e2e      # Playwright against a running stack
+make bench    # event-pipeline throughput (ack time, events/s, latency)
 make help     # all targets
 ```
 

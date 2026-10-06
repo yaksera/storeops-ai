@@ -28,7 +28,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://storeops:storeops@localhost:5432/storeops_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -36,7 +36,9 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app tests
-      - run: uv run pytest --cov --cov-report=term-missing
+      - name: Migrations match the models
+        run: uv run alembic upgrade head && uv run alembic check
+      - run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=85
 
   frontend:
     runs-on: ubuntu-latest
@@ -44,8 +46,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -77,11 +79,11 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://storeops:storeops@localhost:5432/storeops
       REDIS_URL: redis://localhost:6379/0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -118,6 +120,6 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker build -t storeops-api ./backend
       - run: docker build --target runner -t storeops-web ./frontend

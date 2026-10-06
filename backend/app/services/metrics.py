@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Checkout, Order, Shop
@@ -51,13 +51,32 @@ async def _revenue(db: AsyncSession, shop: Shop, start: datetime, end: datetime)
 
 
 async def compute_kpis(db: AsyncSession, shop: Shop, now: datetime | None = None) -> Kpis:
-    """Today's numbers in the shop's timezone, plus the same window a week earlier."""
+    """Today's numbers in the shop's timezone, plus the same window a week earlier.
+
+    Runs after every order event, so it is kept to three indexed queries.
+    """
     now = now or utcnow()
     start = day_start(shop, now)
-    revenue, orders = await _revenue(db, shop, start, now)
-    revenue_lw, orders_lw = await _revenue(
-        db, shop, start - timedelta(days=7), now - timedelta(days=7)
-    )
+    week = timedelta(days=7)
+    net = Order.total_minor - Order.refunded_minor
+    today = and_(Order.processed_at >= start, Order.processed_at < now)
+    last_week = and_(Order.processed_at >= start - week, Order.processed_at < now - week)
+    row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(net).filter(today), 0),
+                func.count(Order.id).filter(today),
+                func.coalesce(func.sum(net).filter(last_week), 0),
+                func.count(Order.id).filter(last_week),
+            ).where(
+                Order.shop_id == shop.id,
+                Order.processed_at >= start - week,
+                Order.processed_at < now,
+                Order.cancelled_at.is_(None),
+            )
+        )
+    ).one()
+    revenue, orders, revenue_lw, orders_lw = (int(v) for v in row)
     checkouts = int(
         await db.scalar(
             select(func.count(Checkout.id)).where(

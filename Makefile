@@ -65,6 +65,14 @@ format: ## Auto-format backend and frontend
 	$(BACKEND) uv run ruff check --fix . && uv run ruff format .
 	$(FRONTEND) npm run format
 
+.PHONY: seed
+seed: ## Create demo@northbound.example and a seeded demo store
+	$(BACKEND) uv run python -m app.cli seed
+
+.PHONY: bench
+bench: ## Measure event-pipeline throughput against the local database
+	$(BACKEND) uv run python -m app.cli bench -n 1000 -c 20
+
 .PHONY: test
 test: ## Run backend (needs Postgres; see backend/README.md) and frontend unit tests
 	$(BACKEND) uv run pytest --cov --cov-report=term-missing

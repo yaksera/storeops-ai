@@ -10,12 +10,11 @@ import uuid
 from typing import Any
 
 from redis.asyncio import Redis
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.activity import AGENT_LABELS, Activity, money, publish_activity
-from app.agents.runner import run_agent
-from app.models import AgentConfig, Shop
+from app.agents.runner import load_context, run_agent
+from app.models import Shop
 from app.models.base import utcnow
 from app.models.enums import AgentName, Autonomy, Severity
 from app.pipeline.normalize import Change
@@ -132,17 +131,6 @@ async def agent_states(redis: Redis, shop_id: uuid.UUID) -> dict[str, dict[str, 
     return {agent: json.loads(value) for agent, value in raw.items()}
 
 
-async def enabled_agents(db: AsyncSession, shop_id: uuid.UUID) -> set[AgentName]:
-    rows = await db.scalars(
-        select(AgentConfig.agent).where(
-            AgentConfig.shop_id == shop_id,
-            AgentConfig.enabled.is_(True),
-            AgentConfig.autonomy != Autonomy.OFF,
-        )
-    )
-    return set(rows.all())
-
-
 def _format_task(template: str, data: dict[str, Any]) -> str:
     values = dict(data)
     if "total_minor" in data and "currency" in data:
@@ -157,7 +145,8 @@ async def route(
     db: AsyncSession, redis: Redis, shop: Shop, changes: list[Change]
 ) -> list[tuple[AgentName, Change]]:
     """Publish each change, hand it to subscribed agents and narrate it. Returns the dispatches."""
-    enabled = await enabled_agents(db, shop.id)
+    settings, configs = await load_context(db, shop.id)
+    enabled = {agent for agent, c in configs.items() if c.enabled and c.autonomy != Autonomy.OFF}
     dispatched: list[tuple[AgentName, Change]] = []
     for change in changes:
         await events.publish(redis, shop.id, change.kind, change.data)
@@ -175,5 +164,5 @@ async def route(
             )
     # Agents run after the dashboard has been told about the change, each in isolation.
     for agent, change in dispatched:
-        await run_agent(db, redis, shop, agent, change)
+        await run_agent(db, redis, shop, agent, change, (settings, configs))
     return dispatched

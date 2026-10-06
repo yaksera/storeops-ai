@@ -6,6 +6,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging
+from app.core.observability import init_sentry, init_tracing
 from app.core.queue import close_queue
 from app.core.redis import close_redis
 from app.worker import tasks
@@ -16,6 +17,8 @@ logger = logging.getLogger("storeops.worker")
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_json)
+    init_sentry(settings, "worker")
+    init_tracing(settings, "worker")
     logger.info("worker starting", extra={"environment": settings.environment})
 
 
