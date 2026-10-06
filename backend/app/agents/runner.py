@@ -15,7 +15,6 @@ from typing import Any
 
 from redis.asyncio import Redis
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import guardrails
@@ -46,7 +45,6 @@ from app.models import (
     Shop,
     ShopSettings,
     Ticket,
-    UsageCounter,
     User,
     Variant,
 )
@@ -67,7 +65,7 @@ from app.models.enums import (
     TicketStatus,
 )
 from app.pipeline.normalize import Change, order_summary
-from app.services import audit, events, metrics
+from app.services import audit, billing, events, metrics
 
 logger = logging.getLogger("storeops.agents")
 
@@ -151,10 +149,12 @@ async def executed_today(db: AsyncSession, shop: Shop, agent: AgentName, now: da
     )
 
 
-def _llm_for(db: AsyncSession, shop: Shop) -> LlmClient | None:
+async def _llm_for(db: AsyncSession, shop: Shop, now: datetime) -> LlmClient | None:
     settings = get_settings()
-    # Demo stores never call external services.
+    # Demo stores never call external services; over-budget stores fall back to rules.
     if shop.mode == ShopMode.DEMO or settings.openrouter_api_key is None:
+        return None
+    if not await billing.llm_budget_left(db, shop, now):
         return None
     return LlmClient(settings, db, shop.id)
 
@@ -185,7 +185,7 @@ async def run_agent(
         await db.commit()
         return run
 
-    llm = _llm_for(db, shop)
+    llm = await _llm_for(db, shop, now)
     ctx = AgentContext(
         db=db,
         redis=redis,
@@ -279,6 +279,7 @@ async def create_proposal(
         customer=customer,
         executed_today=await executed_today(db, shop, config.agent, now),
         now=now,
+        plan_limit=await billing.action_limit_reason(db, shop, now),
     )
     requires_approval = (
         draft.always_requires_approval
@@ -532,18 +533,6 @@ EXECUTORS: dict[str, Executor] = {
 }
 
 
-async def _bump_usage(db: AsyncSession, shop_id: uuid.UUID, now: datetime) -> None:
-    period = now.date().replace(day=1)
-    await db.execute(
-        insert(UsageCounter)
-        .values(id=uuid.uuid4(), shop_id=shop_id, period=period, metric="ai_actions", value=1)
-        .on_conflict_do_update(
-            index_elements=["shop_id", "period", "metric"],
-            set_={"value": UsageCounter.value + 1, "updated_at": now},
-        )
-    )
-
-
 async def execute_proposal(
     db: AsyncSession,
     redis: Redis,
@@ -568,6 +557,7 @@ async def execute_proposal(
         customer=customer,
         executed_today=await executed_today(db, shop, proposal.agent, now),
         now=now,
+        plan_limit=await billing.action_limit_reason(db, shop, now),
     )
     label = AGENT_LABELS[proposal.agent]
     if not check.ok:
@@ -591,7 +581,8 @@ async def execute_proposal(
             proposal.status = ProposalStatus.EXECUTED
             proposal.executed_at = now
             proposal.result = result
-            await _bump_usage(db, shop.id, now)
+            await billing.increment(db, shop.id, billing.AI_ACTIONS, 1, now)
+            await billing.maybe_alert(db, shop, now)
             action, severity = "action.executed", Severity.INFO
             headline = f"{label}: {proposal.title}"
             detail = proposal.summary

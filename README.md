@@ -87,6 +87,19 @@ With `OPENROUTER_API_KEY` set, live stores also use an LLM for explanations and 
 back to the deterministic rules on any failure. Every call is logged to `llm_calls` with tokens and
 cost. Demo stores never call the LLM.
 
+## Plans & billing
+
+| Plan | Price | Includes |
+|---|---|---|
+| Free | $0 | Full demo store; 1 agent on a live store; 100 AI actions / month |
+| Growth | $49 / 30 days | All 8 agents; 2,000 AI actions / month |
+| Pro | $199 / 30 days | Unlimited stores and AI actions; priority processing (dedicated queue and worker) |
+
+Live stores are billed through the Shopify Billing API (test charges outside production). Every
+executed action and every LLM call is metered per shop. Owners get alerts at 80 % and 100 %.
+At the limit, actions are blocked by a guardrail, and once the LLM budget is used up agents fall back
+to their deterministic rules. Demo stores are unmetered and switch plans instantly.
+
 ## Quick start
 
 Requirements: Docker with Compose v2.
@@ -136,13 +149,24 @@ make help     # all targets
 | `frontend/` | Next.js App Router dashboard and design system |
 | `docs/` | Product and technical specification |
 
-## Security model (so far)
+## Security & privacy
 
 - Session auth: opaque random token in an `httpOnly`, `SameSite=Lax` cookie; sessions live in Redis
   keyed by the token's SHA-256.
 - CSRF: per-session synchroniser token sent as `X-CSRF-Token` on every unsafe request, plus an
   `Origin` allow-list.
 - RBAC per shop: `owner` > `admin` > `viewer`. Non-members receive 404 so shop ids can't be probed.
-- Argon2id password hashing, constant-time login path, rate-limited auth endpoints.
-- Shopify access tokens are encrypted at rest with Fernet (`TOKEN_ENCRYPTION_KEY`).
-- `audit_log` is append-only, enforced by a database trigger.
+- Argon2id password hashing, constant-time login path, rate-limited auth and public endpoints.
+- Shopify access tokens are encrypted at rest with Fernet (`TOKEN_ENCRYPTION_KEY`). Every webhook and
+  OAuth callback is HMAC-verified.
+- `audit_log` is append-only, enforced by a database trigger. Only the shop-deletion job may bypass
+  it.
+- GDPR webhooks are implemented:
+  - `customers/data_request` produces an export the merchant can download in Settings → Privacy.
+  - `customers/redact` removes PII from customers, orders, checkouts and support messages.
+  - `shop/redact` deletes everything.
+- Uninstalling revokes access immediately and schedules full deletion after 48 hours. Raw webhook
+  payloads are kept for 30 days.
+- Marketing email only goes to consenting customers. Each one carries a signed one-click
+  unsubscribe link (`/unsubscribe`) and the merchant's postal address.
+- Privacy policy: [`/privacy`](frontend/src/app/privacy/page.tsx).

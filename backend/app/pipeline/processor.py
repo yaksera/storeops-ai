@@ -9,8 +9,9 @@ from app.agents import orchestrator
 from app.models import Shop, WebhookEvent
 from app.models.base import utcnow
 from app.models.enums import ShopStatus, WebhookStatus
-from app.pipeline.normalize import normalize
+from app.pipeline.normalize import COMPLIANCE_TOPICS, normalize
 from app.services import events, metrics
+from app.services.privacy import purge_shop
 
 logger = logging.getLogger("storeops.pipeline")
 
@@ -29,7 +30,14 @@ async def process_event(
         if event.status in (WebhookStatus.PROCESSED, WebhookStatus.SKIPPED):
             return event.status
         shop = await db.get(Shop, event.shop_id)
-        if shop is None or shop.status != ShopStatus.ACTIVE:
+        if shop is not None and event.topic == "shop/redact":
+            # Shopify's final deletion request: everything for this shop goes, this event too.
+            shop_id = shop.id
+            await db.rollback()
+            await purge_shop(db, shop_id)
+            return WebhookStatus.PROCESSED
+        compliance = event.topic in COMPLIANCE_TOPICS
+        if shop is None or (shop.status != ShopStatus.ACTIVE and not compliance):
             event.status = WebhookStatus.SKIPPED
             event.processed_at = utcnow()
             await db.commit()

@@ -26,6 +26,7 @@ from app.core.queue import set_queue
 from app.core.redis import get_redis, set_redis
 from app.main import create_app
 from app.models import Base
+from tests.fakes import fake_shopify  # noqa: F401
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -69,7 +70,9 @@ class InlineQueue:
     def __init__(self) -> None:
         self.jobs: list[tuple[str, tuple[object, ...], str | None]] = []
 
-    async def enqueue(self, function: str, *args: object, job_id: str | None = None) -> None:
+    async def enqueue(
+        self, function: str, *args: object, job_id: str | None = None, priority: bool = False
+    ) -> None:
         import uuid
 
         from app.demo import simulator

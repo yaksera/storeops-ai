@@ -3,7 +3,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.agents.activity import AGENT_LABELS
 from app.agents.base import AgentContext
@@ -13,7 +13,7 @@ from app.models import AgentConfig, Checkout, Customer, Order, Product, ShopSett
 from app.models.base import utcnow
 from app.models.enums import ActorType, AgentName, Autonomy, CheckoutStatus
 from app.pipeline.normalize import Change, order_summary
-from app.services import audit
+from app.services import audit, billing
 
 router = APIRouter(prefix="/api/shops/{shop_id}/agents", tags=["agents"])
 
@@ -131,6 +131,25 @@ async def update_agent(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()),
             ) from None
+    turning_on = (changes.get("enabled") is True and not config.enabled) or (
+        config.autonomy == Autonomy.OFF and changes.get("autonomy") not in (None, Autonomy.OFF)
+    )
+    limit = billing.spec(ctx.shop).max_live_agents
+    if turning_on and billing.metered(ctx.shop) and limit is not None:
+        active = await db.scalar(
+            select(func.count(AgentConfig.id)).where(
+                AgentConfig.shop_id == ctx.shop.id,
+                AgentConfig.agent != AgentName.ORCHESTRATOR,
+                AgentConfig.enabled.is_(True),
+                AgentConfig.autonomy != Autonomy.OFF,
+            )
+        )
+        if (active or 0) >= limit:
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"The {billing.spec(ctx.shop).name} plan includes {limit} agent on a live store. "
+                "Upgrade to Growth to run them all.",
+            )
     before = {key: getattr(config, key) for key in changes}
     for key, value in changes.items():
         setattr(config, key, value)

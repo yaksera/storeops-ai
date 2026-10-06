@@ -7,6 +7,8 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field
 
 from app.agents.base import AgentContext, Decision, ProposalDraft
+from app.core import signing
+from app.core.config import get_settings
 from app.models import Checkout, Customer
 from app.models.enums import AgentName, CheckoutStatus, RiskLevel
 from app.pipeline.normalize import Change
@@ -35,8 +37,9 @@ def _join(names: list[str]) -> str:
     return ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def footer(ctx: AgentContext, checkout: Checkout) -> str:
-    unsubscribe = f"https://{ctx.shop.domain}/pages/unsubscribe?token={checkout.token[:12]}"
+def footer(ctx: AgentContext, checkout: Checkout, customer: Customer) -> str:
+    token = signing.sign("unsubscribe", {"s": str(ctx.shop.id), "c": str(customer.id)})
+    unsubscribe = f"{get_settings().app_url}/unsubscribe?t={token}"
     return (
         f"\n\n—\nYou're receiving this because you started a checkout at {ctx.shop.name}.\n"
         f"Unsubscribe: {unsubscribe}\n{ctx.settings.physical_address or ''}"
@@ -125,7 +128,7 @@ class CartRecovery:
         )
         text = (
             f"{opening}{offer}\n\nComplete your order: {checkout.recovery_url or ''}"
-            f"\n\nHappy trails,\n{sender}{footer(ctx, checkout)}"
+            f"\n\nHappy trails,\n{sender}{footer(ctx, checkout, customer)}"
         )
         total = f"{checkout.total_minor / 100:,.2f} {checkout.currency}"
         output.update({"reminder": reminder, "discount_pct": pct})

@@ -62,6 +62,11 @@ class Settings(BaseSettings):
 
     agent_timeout_seconds: float = 30.0
 
+    # Queue this worker consumes. Pro stores' events go to the priority queue, served by a
+    # dedicated worker so a busy store on another plan can't delay them.
+    worker_queue: str = "arq:queue"
+    priority_queue: str = "storeops:priority"
+
     sse_heartbeat_seconds: float = 15.0
     event_stream_maxlen: int = 1000
 

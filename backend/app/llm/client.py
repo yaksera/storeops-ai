@@ -21,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.models import LlmCall
+from app.models.base import utcnow
 from app.models.enums import AgentName, LlmCallStatus
+from app.services import billing
 
 logger = logging.getLogger("storeops.llm")
 
@@ -133,6 +135,10 @@ class LlmClient:
                 )
             )
             await self._db.flush()
+            if cost:
+                await billing.increment(
+                    self._db, self._shop_id, billing.LLM_COST, int(cost * 1_000_000), utcnow()
+                )
             if status == LlmCallStatus.OK:
                 return LlmResult(value=value, model=model, cost_usd=cost, latency_ms=latency)
             logger.warning(

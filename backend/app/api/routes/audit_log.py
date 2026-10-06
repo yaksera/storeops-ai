@@ -34,7 +34,7 @@ def _filtered(
     if until:
         query = query.where(AuditLog.occurred_at < until)
     if q:
-        query = query.where(AuditLog.details["title"].astext.ilike(f"%{q}%"))
+        query = query.where(AuditLog.details["title"].as_string().ilike(f"%{q}%"))
     return query
 
 

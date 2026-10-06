@@ -17,6 +17,7 @@ from app.models import ActionProposal, Approval, Notification, Shop
 from app.models.base import utcnow
 from app.models.enums import ActorType, EventSource, Severity, ShopMode, ShopStatus
 from app.pipeline.processor import process_event
+from app.services import privacy
 from app.shopify import sync
 
 logger = logging.getLogger("storeops.worker")
@@ -142,6 +143,16 @@ async def weekly_review_summaries(ctx: dict[str, Any]) -> int:
         return len(shops)
 
 
+async def purge_uninstalled_shops(ctx: dict[str, Any]) -> int:
+    async with get_sessionmaker()() as db:
+        return await privacy.purge_due_shops(db)
+
+
+async def apply_retention(ctx: dict[str, Any]) -> int:
+    async with get_sessionmaker()() as db:
+        return await privacy.apply_retention(db)
+
+
 async def simulator_tick(ctx: dict[str, Any]) -> int:
     if not get_settings().demo_mode_enabled:
         return 0
@@ -171,5 +182,7 @@ CRON_JOBS: list[Any] = [
     cron(scan_abandoned_checkouts, second={5, 35}, unique=True, timeout=55),
     cron(expire_proposals, second={50}, unique=True, timeout=55),
     cron(reconcile_shops, hour={9}, minute={15}, unique=True, timeout=3600),
+    cron(purge_uninstalled_shops, minute={40}, unique=True, timeout=600),
+    cron(apply_retention, hour={10}, minute={5}, unique=True, timeout=600),
     cron(weekly_review_summaries, weekday={0}, hour={13}, minute={0}, unique=True, timeout=600),
 ]

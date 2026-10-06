@@ -13,10 +13,12 @@ from app.api.routes import (
     agents,
     audit_log,
     auth,
+    billing,
     health,
     insights,
     live,
     operations,
+    privacy,
     proposals,
     shopify,
     shops,
@@ -103,6 +105,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(shopify.router)
     app.include_router(support.router)
     app.include_router(insights.router)
+    app.include_router(billing.router)
+    app.include_router(privacy.router)
     return app
 
 

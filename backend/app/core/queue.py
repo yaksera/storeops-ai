@@ -10,7 +10,9 @@ from app.core.config import get_settings
 
 
 class JobQueue(Protocol):
-    async def enqueue(self, function: str, *args: Any, job_id: str | None = None) -> None: ...
+    async def enqueue(
+        self, function: str, *args: Any, job_id: str | None = None, priority: bool = False
+    ) -> None: ...
 
 
 class ArqQueue:
@@ -22,9 +24,12 @@ class ArqQueue:
             self._pool = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
         return self._pool
 
-    async def enqueue(self, function: str, *args: Any, job_id: str | None = None) -> None:
+    async def enqueue(
+        self, function: str, *args: Any, job_id: str | None = None, priority: bool = False
+    ) -> None:
         pool = await self._get_pool()
-        await pool.enqueue_job(function, *args, _job_id=job_id)
+        queue = get_settings().priority_queue if priority else None
+        await pool.enqueue_job(function, *args, _job_id=job_id, _queue_name=queue)
 
     async def close(self) -> None:
         if self._pool is not None:

@@ -38,10 +38,13 @@ def evaluate(
     customer: Customer | None,
     executed_today: int,
     now: datetime,
+    plan_limit: str | None = None,
 ) -> GuardrailResult:
     result = GuardrailResult()
     if settings.kill_switch:
         result.blocked.append("Kill switch is on")
+    if plan_limit:
+        result.blocked.append(plan_limit)
     if executed_today >= config.daily_action_cap:
         result.blocked.append(f"Daily cap of {config.daily_action_cap} actions reached")
 

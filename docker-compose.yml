@@ -59,6 +59,18 @@ services:
     depends_on:
       api: { condition: service_healthy }
 
+  # Serves Pro stores' events from a dedicated queue (priority processing).
+  worker-priority:
+    build: ./backend
+    command: arq app.worker.main.WorkerSettings --watch app
+    environment:
+      <<: *backend-env
+      WORKER_QUEUE: storeops:priority
+    env_file: [{ path: .env, required: false }]
+    volumes: [./backend:/app]
+    depends_on:
+      api: { condition: service_healthy }
+
   web:
     build: { context: ./frontend, target: dev }
     environment:
