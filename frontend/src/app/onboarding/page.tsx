@@ -1,16 +1,30 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Loader2, Mountain, Store } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowRight, Loader2, Mountain } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { toast } from "sonner";
 
 import { Logo } from "@/components/brand";
-import { Badge } from "@/components/ui/badge";
+import { ConnectShopifyCard } from "@/components/connect-shopify";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { meQueryKey } from "@/hooks/use-me";
 import { api, ApiError, type ShopSummary } from "@/lib/api";
+
+function InstallError() {
+  const error = useSearchParams().get("error");
+  if (!error) return null;
+  return (
+    <p
+      role="alert"
+      className="mt-6 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+    >
+      {error}
+    </p>
+  );
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -38,6 +52,9 @@ export default function OnboardingPage() {
           Start with the demo store to see the agents work on live simulated traffic, or connect your own
           Shopify store.
         </p>
+        <Suspense>
+          <InstallError />
+        </Suspense>
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           <Card className="border-primary/30 bg-card/80">
             <CardHeader>
@@ -58,25 +75,7 @@ export default function OnboardingPage() {
               </Button>
             </CardContent>
           </Card>
-          <Card className="bg-card/60">
-            <CardHeader>
-              <div className="mb-2 grid size-10 place-items-center rounded-lg border bg-muted text-muted-foreground">
-                <Store className="size-5" aria-hidden />
-              </div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                Your Shopify store <Badge variant="outline">Soon</Badge>
-              </CardTitle>
-              <CardDescription>
-                Install the app on your store with Shopify OAuth. Agents start in suggest-only mode until you
-                raise their autonomy.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" className="w-full" disabled>
-                Connect Shopify
-              </Button>
-            </CardContent>
-          </Card>
+          <ConnectShopifyCard />
         </div>
       </main>
     </div>

@@ -82,6 +82,10 @@ class InlineQueue:
             from app.worker.tasks import execute_approved_proposal
 
             await execute_approved_proposal({}, str(args[0]))
+        elif function == "initial_sync":
+            from app.worker.tasks import initial_sync
+
+            await initial_sync({}, str(args[0]))
         elif function == "run_demo_scenario":
             await simulator.run_scenario(
                 get_sessionmaker(), get_redis(), self, uuid.UUID(str(args[0])), str(args[1]), 0

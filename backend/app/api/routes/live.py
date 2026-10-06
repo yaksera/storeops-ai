@@ -57,6 +57,7 @@ class Dashboard(BaseModel):
     last_event_id: str
     pending_approvals: int
     simulator: dict[str, Any] | None
+    sync: dict[str, Any] | None = None
 
 
 async def _agents(ctx: ShopViewer, db: DbSession, redis: Redis) -> list[AgentOut]:
@@ -146,6 +147,9 @@ async def dashboard(ctx: ShopViewer, db: DbSession, redis: RedisDep) -> Dashboar
             or 0
         ),
         simulator=sim,
+        sync=json.loads(raw_sync)
+        if (raw_sync := await redis.get(f"shop:{ctx.shop.id}:sync"))
+        else None,
     )
 
 

@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     demo_mode_enabled: bool = True
     simulator_tick_seconds: float = 3.0
 
+    shopify_api_key: str | None = None
+    shopify_api_secret: SecretStr | None = None
+    shopify_api_version: str = "2025-10"
+    shopify_scopes: str = (
+        "read_orders,write_orders,read_products,write_products,read_inventory,write_inventory,"
+        "read_customers,read_fulfillments,read_checkouts,write_discounts,"
+        "read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+    )
+    # Public URL Shopify redirects to and posts webhooks to (the web origin proxies /api).
+    public_app_url: str | None = None
+
+    resend_api_key: SecretStr | None = None
+    email_from: str = "StoreOps AI <alerts@storeops.example>"
+
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     llm_default_model: str = "google/gemini-2.5-flash"
@@ -57,6 +71,14 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.startswith("["):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @property
+    def app_url(self) -> str:
+        return (self.public_app_url or self.frontend_origin).rstrip("/")
+
+    @property
+    def shopify_configured(self) -> bool:
+        return bool(self.shopify_api_key and self.shopify_api_secret)
 
     @property
     def is_production(self) -> bool:

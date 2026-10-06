@@ -9,7 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.deps import SAFE_METHODS
-from app.api.routes import agents, audit_log, auth, health, live, operations, proposals, shops
+from app.api.routes import (
+    agents,
+    audit_log,
+    auth,
+    health,
+    live,
+    operations,
+    proposals,
+    shopify,
+    shops,
+)
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging, request_id_var
@@ -88,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agents.router)
     app.include_router(audit_log.router)
     app.include_router(operations.router)
+    app.include_router(shopify.router)
     return app
 
 
