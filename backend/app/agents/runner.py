@@ -25,6 +25,10 @@ from app.agents.cart_recovery import CartRecovery
 from app.agents.effects import Effects, EffectsUnavailableError, effects_for
 from app.agents.fraud import FraudGuard
 from app.agents.inventory import InventoryPlanner
+from app.agents.pricing import PricingAdvisor
+from app.agents.revenue import RevenueAnalyst
+from app.agents.reviews import ReviewReputation
+from app.agents.support import SupportAgent
 from app.core.config import get_settings
 from app.llm.client import LlmClient
 from app.models import (
@@ -34,12 +38,17 @@ from app.models import (
     Approval,
     Checkout,
     Customer,
+    Message,
     Notification,
     Order,
+    Product,
+    Review,
     Shop,
     ShopSettings,
+    Ticket,
     UsageCounter,
     User,
+    Variant,
 )
 from app.models.base import utcnow
 from app.models.enums import (
@@ -48,11 +57,14 @@ from app.models.enums import (
     ApprovalDecision,
     Autonomy,
     CheckoutStatus,
+    MessageAuthor,
+    MessageDirection,
     ProposalStatus,
     RiskLevel,
     RunStatus,
     Severity,
     ShopMode,
+    TicketStatus,
 )
 from app.pipeline.normalize import Change, order_summary
 from app.services import audit, events, metrics
@@ -60,7 +72,16 @@ from app.services import audit, events, metrics
 logger = logging.getLogger("storeops.agents")
 
 REGISTRY: dict[AgentName, Agent] = {
-    agent.name: agent for agent in (FraudGuard(), InventoryPlanner(), CartRecovery())
+    agent.name: agent
+    for agent in (
+        FraudGuard(),
+        InventoryPlanner(),
+        CartRecovery(),
+        SupportAgent(),
+        ReviewReputation(),
+        RevenueAnalyst(),
+        PricingAdvisor(),
+    )
 }
 
 # Fields a reviewer may change when approving, per action type.
@@ -68,6 +89,9 @@ EDITABLE_FIELDS: dict[str, set[str]] = {
     "send_recovery_email": {"subject", "text"},
     "draft_po": {"quantity", "to", "subject", "body"},
     "hold_order": set(),
+    "send_support_reply": {"subject", "text"},
+    "reply_to_review": {"reply"},
+    "change_price": {"to_minor"},
 }
 
 
@@ -427,10 +451,84 @@ async def _send_po(
     return {"message_id": message_id, "quantity": proposal.payload.get("quantity")}
 
 
+async def _send_support_reply(
+    db: AsyncSession, redis: Redis, shop: Shop, proposal: ActionProposal, effects: Effects
+) -> dict[str, Any]:
+    ticket = await db.get(Ticket, uuid.UUID(proposal.payload["ticket_id"]))
+    if ticket is None:
+        raise ActionSkippedError("Ticket no longer exists")
+    if ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+        raise ActionSkippedError("Ticket was already resolved")
+    if not proposal.payload.get("to"):
+        raise ActionSkippedError("Customer has no email address")
+    message_id = await effects.send_email(
+        to=str(proposal.payload["to"]),
+        subject=str(proposal.payload["subject"]),
+        text=str(proposal.payload["text"]),
+        category="support",
+    )
+    now = utcnow()
+    db.add(
+        Message(
+            shop_id=shop.id,
+            ticket_id=ticket.id,
+            direction=MessageDirection.OUTBOUND,
+            author_type=MessageAuthor.AGENT,
+            body=str(proposal.payload["text"]),
+            external_id=message_id,
+            sent_at=now,
+        )
+    )
+    ticket.status = (
+        TicketStatus.RESOLVED if proposal.payload.get("resolve") else TicketStatus.PENDING
+    )
+    ticket.last_message_at = now
+    await events.publish(
+        redis, shop.id, "ticket.updated", {"id": str(ticket.id), "status": ticket.status.value}
+    )
+    return {"message_id": message_id, "ticket_status": ticket.status.value}
+
+
+async def _reply_to_review(
+    db: AsyncSession, redis: Redis, shop: Shop, proposal: ActionProposal, effects: Effects
+) -> dict[str, Any]:
+    review = await db.get(Review, uuid.UUID(proposal.payload["review_id"]))
+    if review is None:
+        raise ActionSkippedError("Review no longer exists")
+    if review.replied_at is not None:
+        raise ActionSkippedError("Review already has a reply")
+    reply = str(proposal.payload["reply"])
+    await effects.reply_to_review(review, reply)
+    review.reply_draft = reply
+    review.replied_at = utcnow()
+    return {"replied": True}
+
+
+async def _change_price(
+    db: AsyncSession, redis: Redis, shop: Shop, proposal: ActionProposal, effects: Effects
+) -> dict[str, Any]:
+    variant = await db.get(Variant, uuid.UUID(proposal.payload["variant_id"]))
+    if variant is None:
+        raise ActionSkippedError("Variant no longer exists")
+    to_minor = int(proposal.payload["to_minor"])
+    floor = int(proposal.payload.get("floor_minor") or 0)
+    if to_minor < floor:
+        raise ValueError(f"New price is below the margin floor ({floor / 100:.2f})")
+    previous = variant.price_minor
+    product = await db.get(Product, variant.product_id)
+    assert product is not None
+    await effects.set_variant_price(product.shopify_id, variant, to_minor)
+    variant.price_minor = to_minor
+    return {"from_minor": previous, "to_minor": to_minor}
+
+
 EXECUTORS: dict[str, Executor] = {
     "hold_order": _hold_order,
     "send_recovery_email": _send_recovery_email,
     "draft_po": _send_po,
+    "send_support_reply": _send_support_reply,
+    "reply_to_review": _reply_to_review,
+    "change_price": _change_price,
 }
 
 
@@ -578,6 +676,10 @@ async def decide_proposal(
         unknown = set(edits) - allowed
         if unknown:
             raise ProposalError(422, f"Cannot edit: {', '.join(sorted(unknown))}")
+        if "to_minor" in edits and (
+            not isinstance(edits["to_minor"], int) or edits["to_minor"] <= 0
+        ):
+            raise ProposalError(422, "to_minor must be a positive integer")
         if "quantity" in edits and (
             not isinstance(edits["quantity"], int) or edits["quantity"] <= 0
         ):

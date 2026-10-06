@@ -486,7 +486,8 @@ class DemoStore:
                 "id": await self._next_id(),
                 "order_id": order.shopify_id,
                 "status": "success",
-                "tracking_number": f"1Z{self.rng.randint(10**9, 10**10 - 1)}",
+                "tracking_number": (tracking := f"1Z{self.rng.randint(10**9, 10**10 - 1)}"),
+                "tracking_url": f"https://track.carrier.example/{tracking}",
                 "created_at": utcnow().isoformat(),
             },
         )

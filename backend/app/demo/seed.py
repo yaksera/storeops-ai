@@ -61,6 +61,8 @@ async def configure_demo_shop(db: AsyncSession, shop: Shop) -> None:
         "reminder_interval_minutes": 5,
         "discount_pct": 10,
     }
+    configs[AgentName.SUPPORT].autonomy = Autonomy.AUTO
+    configs[AgentName.REVIEW_REPUTATION].autonomy = Autonomy.AUTO
     configs[AgentName.INVENTORY_PLANNER].settings = {
         "supplier_email": "purchasing@northbound-supply.example"
     }

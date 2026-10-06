@@ -70,6 +70,10 @@ prompt version, cost and latency. Approvals record who decided and any edits.
 | Fraud Guard | new order | Scores 0–100 from address mismatch, high-risk countries, payment status, unusual quantity, new high-value customers, disposable email and order velocity. At or above the shop's threshold it proposes a hold, with a plain-language explanation. |
 | Inventory Planner | stock change | Forecasts days to stockout from 30/90-day moving averages with weekday seasonality. Below the reorder point it drafts a supplier PO email (always needs approval). |
 | Cart Recovery | checkout abandoned past a threshold | Sends a personal email naming the products in the cart, with up to 2 reminders. The second reminder can carry a unique code (≤ 10 %, 48 h). Requires marketing consent, includes an unsubscribe link and a physical address, and stops once the order completes. |
+| Support Agent | support email / chat | Classifies order-status, returns, sizing and order-change questions and answers with live order, fulfilment and tracking data. It hands over to a human when the customer is upset, uses legal or chargeback language, asks for a refund over $100, or the agent isn't confident. |
+| Review & Reputation | new review | Scores sentiment, tags themes and drafts a public reply. 1–2★ reviews open a ticket and always need approval before replying. Sends a weekly top-complaints summary. |
+| Revenue Analyst | orders and refunds (throttled) | Compares revenue with the same window last week and flags deviations of 40 % or more. The likely cause comes from stockouts of best sellers, refund waves, promotions or a shift in traffic source. |
+| Pricing Advisor | stock change (once per SKU per day) | Suggests raising prices on SKUs selling out before a reorder can land, and marking down slow movers, never below the margin floor. Suggest-only: every change needs approval. |
 
 **Autonomy** is set per agent. `off` ignores events. `suggest` puts every action in the approval
 queue. `auto` acts within limits, but high-risk actions and anything a guardrail escalates still

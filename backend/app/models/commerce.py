@@ -169,6 +169,8 @@ class Order(UUIDPrimaryKey, Timestamps, ShopScoped, Base):
     billing_country: Mapped[str | None] = mapped_column(String(2))
     source_name: Mapped[str | None] = mapped_column(String(64))
     risk_score: Mapped[int | None] = mapped_column(Integer)
+    tracking_number: Mapped[str | None] = mapped_column(String(128))
+    tracking_url: Mapped[str | None] = mapped_column(String(1024))
     is_held: Mapped[bool] = mapped_column(Boolean, default=False)
     processed_at: Mapped[datetime]
     cancelled_at: Mapped[datetime | None]

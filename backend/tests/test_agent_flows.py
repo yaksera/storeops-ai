@@ -609,8 +609,7 @@ async def test_agent_settings_api(
     cart = next(a for a in agents if a["agent"] == "cart_recovery")
     assert cart["available"]
     assert cart["autonomy"] == "auto"
-    support = next(a for a in agents if a["agent"] == "support")
-    assert not support["available"]
+    assert all(a["available"] for a in agents)
 
     updated = await owner.patch(
         f"{base}/cart_recovery",

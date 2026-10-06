@@ -54,8 +54,8 @@ function navItems(shopId: string): NavItem[] {
     { href: `${base}/approvals`, label: "Approvals", icon: CheckCheck, ready: true },
     { href: `${base}/inventory`, label: "Inventory", icon: Boxes, ready: true },
     { href: `${base}/recovery`, label: "Recovery", icon: ShoppingCart, ready: true },
-    { href: `${base}/support`, label: "Support", icon: MessageSquareText, ready: false },
-    { href: `${base}/insights`, label: "Insights", icon: LineChart, ready: false },
+    { href: `${base}/support`, label: "Support", icon: MessageSquareText, ready: true },
+    { href: `${base}/insights`, label: "Insights", icon: LineChart, ready: true },
     { href: `${base}/agents`, label: "Agents", icon: Sparkles, ready: true },
     { href: `${base}/audit`, label: "Audit log", icon: ScrollText, ready: true },
     { href: `${base}/settings`, label: "Settings", icon: Settings, ready: true },
@@ -179,17 +179,20 @@ function ShopSwitcher({ me, shop }: { me: Me; shop: ShopSummary }) {
 export function AppShell({ shopId, children }: { shopId: string; children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { data: me, error, isPending } = useMe();
+  const { data: me, error, isPending, isFetching, refetch } = useMe();
   const [mobileOpen, setMobileOpen] = useState(false);
   const shop = me?.shops.find((s) => s.id === shopId);
 
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-    } else if (me && !shop) {
-      router.replace("/app");
+    } else if (me && !shop && !isFetching) {
+      // The shop may have just been created; only give up once a fresh profile confirms it's gone.
+      void refetch().then((result) => {
+        if (result.data && !result.data.shops.some((s) => s.id === shopId)) router.replace("/app");
+      });
     }
-  }, [error, me, shop, router, pathname]);
+  }, [error, me, shop, shopId, isFetching, refetch, router, pathname]);
 
   if (isPending || !me || !shop) return <FullPageSpinner label="Connecting to mission control" />;
 

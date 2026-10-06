@@ -41,7 +41,13 @@ class InventorySettings(BaseModel):
     supplier_email: EmailStr | None = None
 
 
+class PricingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    margin_floor_pct: int = Field(ge=0, le=500)
+
+
 SETTINGS_SCHEMAS: dict[AgentName, type[BaseModel]] = {
+    AgentName.PRICING_ADVISOR: PricingSettings,
     AgentName.CART_RECOVERY: CartRecoverySettings,
     AgentName.INVENTORY_PLANNER: InventorySettings,
 }

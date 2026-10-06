@@ -92,6 +92,60 @@ function EmailPreviewBlock({
   );
 }
 
+function PriceBlock({ proposal }: { proposal: Proposal }) {
+  const price = proposal.preview.price;
+  if (!price) return null;
+  const change = (price.to_minor - price.from_minor) / price.from_minor;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background/40 px-4 py-3 text-sm">
+      <span className="tabular text-muted-foreground line-through">
+        {formatMoney(price.from_minor, price.currency)}
+      </span>
+      <span aria-hidden>→</span>
+      <span className="tabular text-lg font-semibold">{formatMoney(price.to_minor, price.currency)}</span>
+      <Badge variant={change > 0 ? "info" : "warning"}>
+        {change > 0 ? "+" : ""}
+        {(change * 100).toFixed(0)}%
+      </Badge>
+    </div>
+  );
+}
+
+function ReviewBlock({
+  proposal,
+  editing,
+  edits,
+  onEdit,
+}: {
+  proposal: Proposal;
+  editing: boolean;
+  edits: Edits;
+  onEdit: (field: string, value: string | number) => void;
+}) {
+  const review = proposal.preview.review;
+  if (!review) return null;
+  const reply = String(edits.reply ?? proposal.payload.reply ?? "");
+  return (
+    <div className="grid gap-3 rounded-lg border bg-background/40 px-4 py-3 text-sm">
+      <blockquote>
+        <p className="font-medium">
+          {"★".repeat(review.rating)}
+          <span className="text-muted-foreground">{"★".repeat(5 - review.rating)}</span> {review.title}
+        </p>
+        <p className="mt-1 text-muted-foreground">{review.body}</p>
+      </blockquote>
+      {editing ? (
+        <Textarea aria-label="Public reply" value={reply} onChange={(e) => onEdit("reply", e.target.value)} />
+      ) : (
+        <p className="border-l-2 border-primary/40 pl-3">
+          <span className="text-xs text-muted-foreground">Public reply: </span>
+          {reply}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function FactorsBlock({ proposal }: { proposal: Proposal }) {
   const factors = proposal.preview.factors;
   const order = proposal.preview.order;
@@ -155,7 +209,7 @@ export const ProposalCard = forwardRef<HTMLElement, Props>(function ProposalCard
   ref,
 ) {
   const pending = proposal.status === "proposed";
-  const editable = proposal.action_type !== "hold_order";
+  const editable = !["hold_order", "change_price"].includes(proposal.action_type);
   const risk = RISK[proposal.risk_level];
   const status = STATUS[proposal.status];
   const [showWhy, setShowWhy] = useState(true);
@@ -206,6 +260,8 @@ export const ProposalCard = forwardRef<HTMLElement, Props>(function ProposalCard
 
       <FactorsBlock proposal={proposal} />
       <EmailPreviewBlock proposal={proposal} editing={editing} edits={edits} onEdit={onEdit} />
+      <PriceBlock proposal={proposal} />
+      <ReviewBlock proposal={proposal} editing={editing} edits={edits} onEdit={onEdit} />
 
       {proposal.error && <p className="text-sm text-destructive">{proposal.error}</p>}
       {proposal.result?.discount_code ? (
