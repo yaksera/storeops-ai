@@ -356,3 +356,21 @@ async def test_nightly_reconciliation_resyncs_live_shops(
 )
 def test_shop_domain_normalisation(raw: str, expected: str) -> None:
     assert _normalise_domain(raw) == expected
+
+
+async def test_install_survives_rejected_webhook_topics(
+    owner: Session, fake_shopify: FakeShopify, db: AsyncSession
+) -> None:
+    fake_shopify.rejected_topics = {"ORDERS_CREATE", "CHECKOUTS_CREATE"}
+    params = await _start_install(owner)
+
+    response = await owner.client.get("/api/shopify/callback", params=params)
+    assert response.headers["location"].endswith("?installed=1")
+
+    shop = await db.scalar(select(Shop).where(Shop.domain == SHOP))
+    assert shop is not None
+    entry = await db.scalar(
+        select(AuditLog).where(AuditLog.shop_id == shop.id, AuditLog.action == "shopify.installed")
+    )
+    assert entry is not None
+    assert set(entry.details["webhooks_failed"]) == {"ORDERS_CREATE", "CHECKOUTS_CREATE"}

@@ -90,6 +90,7 @@ class FakeShopify:
         self.throttle_first = False
         self.reject_token = False
         self.active_subscriptions: list[dict[str, Any]] = []
+        self.rejected_topics: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -129,10 +130,15 @@ class FakeShopify:
                 }
             }
         elif "webhookSubscriptionCreate" in query:
+            rejected = body["variables"]["topic"] in self.rejected_topics
             data = {
                 "webhookSubscriptionCreate": {
-                    "webhookSubscription": {"id": "gid://1"},
-                    "userErrors": [],
+                    "webhookSubscription": None if rejected else {"id": "gid://1"},
+                    "userErrors": [
+                        {"field": ["topic"], "message": "Protected customer data access required"}
+                    ]
+                    if rejected
+                    else [],
                 }
             }
         elif "products(" in query:
