@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.effects import LiveEffects
+from app.api.routes.shopify import _normalise_domain
 from app.core.crypto import encrypt_secret
 from app.models import ActionProposal, AuditLog, Order, Product, Shop, User, WebhookEvent
 from app.models.enums import AgentName, ProposalStatus, RiskLevel, ShopMode, ShopStatus
@@ -342,3 +343,34 @@ async def test_nightly_reconciliation_resyncs_live_shops(
         )
         == 2
     )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Acme-Outdoors", "acme-outdoors.myshopify.com"),
+        ("acme-outdoors.myshopify.com", "acme-outdoors.myshopify.com"),
+        ("https://acme-outdoors.myshopify.com/admin", "acme-outdoors.myshopify.com"),
+        ("https://admin.shopify.com/store/abc123-xy/orders", "abc123-xy.myshopify.com"),
+    ],
+)
+def test_shop_domain_normalisation(raw: str, expected: str) -> None:
+    assert _normalise_domain(raw) == expected
+
+
+async def test_install_survives_rejected_webhook_topics(
+    owner: Session, fake_shopify: FakeShopify, db: AsyncSession
+) -> None:
+    fake_shopify.rejected_topics = {"ORDERS_CREATE", "CHECKOUTS_CREATE"}
+    params = await _start_install(owner)
+
+    response = await owner.client.get("/api/shopify/callback", params=params)
+    assert response.headers["location"].endswith("?installed=1")
+
+    shop = await db.scalar(select(Shop).where(Shop.domain == SHOP))
+    assert shop is not None
+    entry = await db.scalar(
+        select(AuditLog).where(AuditLog.shop_id == shop.id, AuditLog.action == "shopify.installed")
+    )
+    assert entry is not None
+    assert set(entry.details["webhooks_failed"]) == {"ORDERS_CREATE", "CHECKOUTS_CREATE"}

@@ -1,6 +1,7 @@
 """OAuth install flow and post-install setup (shop details, webhook subscriptions)."""
 
 import json
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from app.services import audit, billing
 from app.services.shops import create_shop
 from app.shopify.client import ShopifyClient, ShopifyError, http_client, user_errors
 from app.shopify.sync import SHOP_QUERY
+
+logger = logging.getLogger("storeops.shopify")
 
 STATE_TTL_SECONDS = 600
 
@@ -116,14 +119,21 @@ async def complete_install(
     async with ShopifyClient(shop_domain, token, redis) as client:
         info = (await client.query(SHOP_QUERY))["shop"]
         callback = f"{get_settings().app_url}/api/webhooks/shopify"
+        failed_topics: dict[str, str] = {}
         for topic in WEBHOOK_TOPICS:
-            result = await client.query(WEBHOOK_MUTATION, {"topic": topic, "url": callback})
             try:
+                result = await client.query(WEBHOOK_MUTATION, {"topic": topic, "url": callback})
                 user_errors(result, "webhookSubscriptionCreate")
             except ShopifyError as exc:
-                # Re-installs hit "address already taken"; anything else is a real failure.
+                # Re-installs hit "address already taken". Other rejections (typically topics
+                # that need protected customer data approval) must not block the install:
+                # nightly reconciliation still picks those changes up.
                 if "taken" not in str(exc).lower():
-                    raise
+                    failed_topics[topic] = str(exc)
+                    logger.warning(
+                        "webhook subscription rejected",
+                        extra={"shop": shop_domain, "topic": topic, "error": str(exc)},
+                    )
 
     limit = await billing.live_store_limit_reason(db, user.id, shop_domain)
     if limit:
@@ -170,7 +180,11 @@ async def complete_install(
         action="shopify.installed",
         target_type="shop",
         target_id=shop.id,
-        details={"scopes": scopes.split(","), "reinstall": not created},
+        details={
+            "scopes": scopes.split(","),
+            "reinstall": not created,
+            "webhooks_failed": failed_topics,
+        },
     )
     await db.commit()
     return InstallResult(shop=shop, created=created)

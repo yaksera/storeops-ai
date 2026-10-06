@@ -1,4 +1,5 @@
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 
 from app.cli import main as cli_main
@@ -19,7 +20,7 @@ def test_production_accepts_safe_configuration() -> None:
     settings = Settings(
         environment="production",
         secret_key=SecretStr("x" * 48),
-        token_encryption_key=SecretStr("k" * 44),
+        token_encryption_key=SecretStr(Fernet.generate_key().decode()),
         cookie_secure=True,
         frontend_origin="https://app.storeops.example",
         _env_file=None,
@@ -71,3 +72,16 @@ def test_database_url_is_normalised_for_asyncpg() -> None:
     for raw in ("postgres://u:p@db:5432/x", "postgresql://u:p@db:5432/x"):
         settings = Settings(database_url=raw, _env_file=None)
         assert settings.database_url == "postgresql+asyncpg://u:p@db:5432/x"
+
+
+def test_empty_env_values_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", "")
+    monkeypatch.setenv("PUBLIC_APP_URL", "")
+    settings = Settings(_env_file=None)
+    assert settings.token_encryption_key is None
+    assert settings.public_app_url is None
+
+
+def test_invalid_token_encryption_key_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="TOKEN_ENCRYPTION_KEY must be a Fernet key"):
+        Settings(token_encryption_key=SecretStr("not-a-key"), _env_file=None)

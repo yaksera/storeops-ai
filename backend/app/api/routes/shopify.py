@@ -38,7 +38,11 @@ async def shopify_status(settings: SettingsDep) -> dict[str, Any]:
 
 
 def _normalise_domain(raw: str) -> str:
-    shop = raw.strip().lower().removeprefix("https://").removeprefix("http://").split("/")[0]
+    """Accept a handle, a .myshopify.com domain or a pasted admin.shopify.com/store/<handle> URL."""
+    path = raw.strip().lower().removeprefix("https://").removeprefix("http://")
+    if path.startswith("admin.shopify.com/store/"):
+        path = path.removeprefix("admin.shopify.com/store/")
+    shop = path.split("/")[0]
     if "." not in shop:
         shop = f"{shop}.myshopify.com"
     return shop
