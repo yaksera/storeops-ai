@@ -41,6 +41,9 @@
   --chart-3: oklch(0.82 0.15 80);
   --chart-4: oklch(0.7 0.17 300);
   --chart-5: oklch(0.66 0.21 22);
+  /* Validated pair (dark surface, CVD-safe) for today vs. last-week comparisons. */
+  --viz-current: #1ba4ae;
+  --viz-baseline: #c47d34;
 
   --sidebar: oklch(0.17 0.015 255);
   --sidebar-foreground: oklch(0.9 0.01 250);
@@ -83,6 +86,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-viz-current: var(--viz-current);
+  --color-viz-baseline: var(--viz-baseline);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-accent: var(--sidebar-accent);

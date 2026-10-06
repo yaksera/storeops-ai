@@ -66,8 +66,13 @@ format: ## Auto-format backend and frontend
 	$(FRONTEND) npm run format
 
 .PHONY: test
-test: ## Run backend tests with coverage (needs Postgres; see backend/README.md)
+test: ## Run backend (needs Postgres; see backend/README.md) and frontend unit tests
 	$(BACKEND) uv run pytest --cov --cov-report=term-missing
+	$(FRONTEND) npm test
+
+.PHONY: e2e
+e2e: ## Run Playwright end-to-end tests against a running stack on :3000
+	$(FRONTEND) npm run test:e2e
 
 .PHONY: check
 check: lint test ## Everything CI runs

@@ -14,6 +14,7 @@ from app.api.schemas import (
     ShopSummary,
     UpdateMemberRequest,
 )
+from app.demo.seed import seed_demo_shop
 from app.models import Membership, ShopSettings, User
 from app.models.enums import ActorType, Role, ShopMode
 from app.services import audit
@@ -33,6 +34,7 @@ async def create_demo_shop(body: CreateDemoShopRequest, auth: Auth, db: DbSessio
         mode=ShopMode.DEMO,
         timezone="America/Denver",
     )
+    await seed_demo_shop(db, shop)
     await db.commit()
     return ShopSummary(
         id=shop.id,

@@ -9,10 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.deps import SAFE_METHODS
-from app.api.routes import auth, health, shops
+from app.api.routes import auth, health, live, shops
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging, request_id_var
+from app.core.queue import close_queue
 from app.core.redis import close_redis
 
 logger = logging.getLogger("storeops.api")
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logger.info("api starting", extra={"environment": settings.environment})
         yield
+        await close_queue()
         await close_redis()
         await dispose_engine()
 
@@ -81,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(shops.router)
+    app.include_router(live.router)
     return app
 
 

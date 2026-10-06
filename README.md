@@ -14,13 +14,50 @@ Server-Sent Events · OpenRouter
 
 ```mermaid
 flowchart LR
-  browser[Browser] -->|"/ and /api (same origin)"| web[Next.js]
-  web -->|rewrite /api/*| api[FastAPI]
-  api --> pg[(PostgreSQL)]
-  api --> redis[(Redis)]
-  worker[Arq worker] --> pg
-  worker --> redis
+  shopify[Shopify webhooks] -->|HMAC verified| api[FastAPI]
+  sim[Demo simulator] --> ingest
+  api --> ingest[Ingest: store raw event, dedupe on webhook id]
+  ingest -->|enqueue| queue[(Redis / Arq)]
+  queue --> worker[Worker: normalise into domain tables]
+  worker --> pg[(PostgreSQL)]
+  worker --> orch[Orchestrator: route to agents]
+  orch -->|XADD + PUBLISH shop:id| redis[(Redis stream + pub/sub)]
+  redis -->|SSE, resumable via Last-Event-ID| web[Next.js dashboard]
 ```
+
+The browser only talks to the Next.js origin; `/api/*` (including the SSE stream) is proxied to
+FastAPI so the session cookie stays first-party.
+
+### Real-time pipeline
+
+1. **Ingest:** the raw payload goes into `webhook_events`, deduplicated on the delivery id, and a job
+   is enqueued. Nothing else happens on the request path.
+2. **Normalise:** the worker upserts orders, customers, checkouts, variants, inventory, reviews and
+   tickets. Handlers are idempotent and skip payloads older than the stored `updated_at`, so
+   duplicate and out-of-order deliveries are harmless. A failing event is marked `failed` with
+   the error and doesn't block others.
+3. **Route:** the orchestrator publishes each domain change to the shop's event stream, hands it to
+   the subscribed agents and writes a human-readable activity line explaining why it matters.
+4. **Stream:** every event gets a Redis stream id. The dashboard loads a snapshot
+   (`GET /api/shops/{id}/dashboard`) and then opens `GET /api/shops/{id}/events/stream` from the
+   snapshot's `last_event_id`. On reconnect the browser sends `Last-Event-ID` and missed events are
+   replayed. If the stream can't be held open, the client falls back to polling
+   `GET /api/shops/{id}/events?after=…`.
+
+## Demo mode
+
+The **Northbound Outdoor Gear** demo store is seeded with a 12-product, 30-variant catalog, 320 customers and
+five weeks of order history, so KPIs and week-over-week comparisons make sense from the first
+minute. While someone is watching the dashboard, the simulator streams:
+
+- checkouts every few seconds, about half of which convert into orders with matching stock updates
+- the occasional suspicious order (new customer, billed abroad, unusual quantity, payment pending)
+- reviews, support emails, fulfilments and restocks
+
+Use **Trigger scenario** to fire a flash sale spike, fraud attempt, stockout, angry review or
+shipping delay. **Pause demo traffic** stops the simulator. Simulated events go through the same
+ingest pipeline as real webhooks. Demo mode needs no API keys and never contacts Shopify or sends
+email.
 
 ## Quick start
 
@@ -57,7 +94,8 @@ make web        # terminal 3
 
 ```bash
 make lint     # ruff, mypy, eslint, tsc, prettier
-make test     # pytest with coverage (needs a storeops_test database)
+make test     # pytest with coverage (needs a storeops_test database) + vitest
+make e2e      # Playwright against a running stack
 make help     # all targets
 ```
 
